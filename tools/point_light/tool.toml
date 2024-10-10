@@ -1,0 +1,5 @@
+[tool]
+name = "Zzz Point Light"
+version = "0.1.0"
+script = "./src/main.lua"
+icon = "./icon.png"
