@@ -1,5 +1,5 @@
 local start = nil;
-local prev_shape_guid = nil;
+local prev_shape = nil;
 local capsule_color = 0x000000;
 
 local prev_pointer_pos = vec2(0, 0);
@@ -34,12 +34,12 @@ function on_pointer_move(point)
             input = {
                 start_point = start,
                 end_point = point,
-                prev_shape_guid = prev_shape_guid,
+                prev_shape = prev_shape,
                 color = capsule_color,
             },
             code = [[
-                if input.prev_shape_guid ~= nil then
-                    Scene:get_object_by_guid(input.prev_shape_guid):destroy();
+                if input.prev_shape ~= nil then
+                    input.prev_shape:destroy();
                 end;
 
                 local start_point = Input:snap_if_preferred(input.start_point);
@@ -51,10 +51,11 @@ function on_pointer_move(point)
                 local distance = (end_point - start_point):magnitude();
 
                 if distance > 0 then
+                    local center = (start_point + end_point) * 0.5;
                     local new_capsule_omg = Scene:add_capsule({
-                        position = vec2(0, 0),
-                        local_point_a = start_point,
-                        local_point_b = end_point,
+                        position = center,
+                        local_point_a = start_point - center,
+                        local_point_b = end_point - center,
                         radius = 0.1,
                         is_static = true,
                         color = capsule_color,
@@ -62,15 +63,14 @@ function on_pointer_move(point)
                     new_capsule_omg:temp_set_collides(false);
 
                     return {
-                        guid = new_capsule_omg.guid
+                        shape = new_capsule_omg
                     };
                 end;
             ]]
         });
-        prev_shape_guid = nil;
         if output ~= nil then
-            if output.guid ~= nil then
-                prev_shape_guid = output.guid;
+            if output.shape ~= nil then
+                prev_shape = output.shape;
             end;
         end;
     end;
@@ -82,12 +82,12 @@ function on_pointer_up(point)
         input = {
             start_point = start,
             end_point = point,
-            prev_shape_guid = prev_shape_guid,
+            prev_shape = prev_shape,
             color = capsule_color,
         },
         code = [[
-            if input.prev_shape_guid ~= nil then
-                Scene:get_object_by_guid(input.prev_shape_guid):destroy();
+            if input.prev_shape ~= nil then
+                input.prev_shape:destroy();
             end;
 
             local start_point = Input:snap_if_preferred(input.start_point);
@@ -98,21 +98,18 @@ function on_pointer_up(point)
             local distance = (end_point - start_point):magnitude();
 
             if distance > 0 then
+                local center = (start_point + end_point) * 0.5;
                 local new_capsule_omg = Scene:add_capsule({
-                    position = vec2(0, 0),
-                    local_point_a = start_point,
-                    local_point_b = end_point,
+                    position = center,
+                    local_point_a = start_point - center,
+                    local_point_b = end_point - center,
                     radius = 0.1,
                     is_static = not Input:key_pressed("ShiftLeft"),
                     color = capsule_color,
                 });
-
-                return {
-                    guid = new_capsule_omg.guid
-                };
             end;
         ]]
     });
-    prev_shape_guid = nil;
+    prev_shape = nil;
     start = nil;
 end;

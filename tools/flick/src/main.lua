@@ -20,7 +20,7 @@ function on_pointer_down(point)
                     position = input.point,
                     radius = 0.02,
                     is_static = true,
-                    color = 0xffffff,
+                    color = Color:rgba(0,0,0,0),
                 });
                 ground:temp_set_collides(false);
                 return {
@@ -56,20 +56,17 @@ function on_pointer_move(point)
                     Scene:get_object_by_guid(input.prev_line):destroy();
                 end;
 
-                function line(line_start,line_end,thickness,color,static)
-                    local pos = (line_start+line_end)/2
-                    local sx = (line_start-line_end):magnitude()
-                    local relative_line_end = line_end-pos
-                    local rotation = math.atan(relative_line_end.y/relative_line_end.x)
-                    local line = Scene:add_box({
-                        position = pos,
-                        size = vec2(sx, thickness),
+                function line(line_start, line_end, thickness, color, static)
+                    local line = Scene:add_capsule({
+                        position = vec2(0,0),
+                        local_point_a = line_start,
+                        local_point_b = line_end,
+                        radius = thickness / 2,
                         is_static = static,
                         color = color
                     });
 
                     line:temp_set_collides(false);
-                    line:set_angle(rotation);
                     
                     return line;
                 end;
