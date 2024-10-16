@@ -89,27 +89,27 @@ function on_pointer_move(point)
                 local polygon_color = Color:hex(input.color);
                 polygon_color.a = 77;
 
-                if #input.points > 1 then
-                    local adjusted_points = {};
-                    for _, point in ipairs(input.points) do
-                        table.insert(adjusted_points, point);
-                    end;
-                    table.insert(adjusted_points, input.now_point);
+                table.insert(input.points, input.now_point);
 
+                if #input.points >= 8 then
+                    table.remove(input.points, 1); -- remove the oldest point
+                end;
+
+                if #input.points > 2 then
                     -- useless to have right center in preview poly goner but boo hoo hoo hoo hoo hoo hoo hoo hoo hoo hoo hoo hoo hoo for i=1,math.huge do Console:write('hoo '); end;
                     local center = vec2(0, 0);
-                    for _, point in ipairs(adjusted_points) do
+                    for _, point in ipairs(input.points) do
                         center = center + point;
                     end;
-                    center = center / #adjusted_points;
+                    center = center / #input.points;
 
-                    for i, point in ipairs(adjusted_points) do
-                        adjusted_points[i] = point - center;
+                    for i, point in ipairs(input.points) do
+                        input.points[i] = point - center;
                     end;
 
                     local new_polygon_omg = Scene:add_polygon({
                         position = center,
-                        points = adjusted_points,
+                        points = input.points,
                         radius = 0,
                         is_static = Input:key_pressed("ShiftLeft"),
                         color = polygon_color,
