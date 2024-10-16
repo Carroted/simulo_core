@@ -91,7 +91,7 @@ function on_pointer_move(point)
 
                 table.insert(input.points, input.now_point);
 
-                if #input.points >= 8 then
+                if #input.points > 8 then
                     table.remove(input.points, 1); -- remove the oldest point
                 end;
 
