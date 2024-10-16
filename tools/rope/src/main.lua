@@ -154,18 +154,18 @@ function on_pointer_up(point)
 
             local distance = (end_point - start_point):magnitude();
 
-            if distance > 0 then
-                local end_stuff = Scene:get_objects_in_circle({
-                    position = end_point,
-                    radius = 0,
-                });
-                local filtered_stuff = {};
-                for _, obj in ipairs(end_stuff) do
-                    if not obj:is_destroyed() then
-                        table.insert(filtered_stuff, obj);
-                    end;
+           local end_stuff = Scene:get_objects_in_circle({
+                position = end_point,
+                radius = 0,
+            });
+            local filtered_stuff = {};
+            for _, obj in ipairs(end_stuff) do
+                if not obj:is_destroyed() then
+                    table.insert(filtered_stuff, obj);
                 end;
+            end;
 
+            if distance > 0 then
                 local new_capsule_omg = Scene:add_capsule({
                     position = vec2(0, 0),
                     local_point_a = start_point,
@@ -194,10 +194,19 @@ function on_pointer_up(point)
                 --if Input:key_pressed("ShiftLeft") then
                     new_capsule_omg:set_body_type(BodyType.Dynamic);
                 --end;
+            else
+                if filtered_stuff[1] ~= nil then
+                    Scene:add_hinge_at_world_point({
+                        object_a = input.last_capsule,
+                        object_b = filtered_stuff[1],
+                        point = end_point,
+                    });
+                end;
             end;
 
             --if (input.last_capsule ~= nil) and (Input:key_pressed("ShiftLeft")) then
                 input.last_capsule:set_body_type(BodyType.Dynamic);
+                
             --end;
 
             if input.past_parts ~= nil then

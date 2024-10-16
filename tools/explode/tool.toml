@@ -1,5 +1,0 @@
-[tool]
-name = "Gaming: Explode"
-version = "0.1.0"
-script = "./src/main.lua"
-icon = "./icon.png"
