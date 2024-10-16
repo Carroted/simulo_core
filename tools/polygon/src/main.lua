@@ -1,14 +1,14 @@
-local prev_shape = nil;
-local polygon_color = get_random_color();
-local points = {};
-local prev_pointer_pos = vec2(0, 0);
-
 function get_random_color()
     local r = math.random(0x50, 0xff);
     local g = math.random(0x50, 0xff);
     local b = math.random(0x50, 0xff);
     return r * 0x10000 + g * 0x100 + b;
 end;
+
+local prev_shape = nil;
+local polygon_color = get_random_color();
+local points = {};
+local prev_pointer_pos = vec2(0, 0);
 
 function on_update()
     if Input:pointer_just_pressed() then
