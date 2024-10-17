@@ -36,93 +36,117 @@ end;
 
 function on_pointer_move(point)
     if start then
-        local output = runtime_eval({
-            input = {
-                start_point = start,
-                end_point = point,
-                prev_shape = prev_shape,
-                color = capsule_color,
-                split_distance = split_distance,
-                last_capsule = last_capsule,
-                first = first,
-            },
-            code = [[
-                if input.prev_shape ~= nil then
-                    input.prev_shape:destroy();
-                end;
+        local direction = (point - start):normalize();  -- Calculate the direction of movement
+        local remaining_distance = (point - start):magnitude();  -- Get the total distance to move
 
-                local start_point = Input:snap_if_preferred(input.start_point);
-                local end_point = Input:snap_if_preferred(input.end_point);
+        -- Keep adding segments as long as remaining distance is greater than split_distance
+        while remaining_distance >= split_distance do
+            -- Calculate the new end point for the next segment
+            local new_end = start + direction * split_distance;
 
-                local capsule_color = Color:hex(input.color);
-                local distance = (end_point - start_point):magnitude();
-
-                if distance > 0 then
-                    local segments = math.floor(distance / input.split_distance);
-                    local segment_vector = (end_point - start_point):normalize() * input.split_distance;
-                    local new_start = start_point;
-
-                    for i = 1, segments do
-                        local segment_end = new_start + segment_vector;
-                        local new_capsule_omg = Scene:add_capsule({
-                            position = vec2(0, 0),
-                            local_point_a = new_start,
-                            local_point_b = segment_end,
-                            radius = 0.05,
-                            is_static = true,
-                            color = capsule_color,
-                        });
-
-                        if input.last_capsule then
-                            Scene:add_hinge_at_world_point({
-                                object_a = new_capsule_omg,
-                                object_b = input.last_capsule,
-                                point = new_start,
-                            });
-                        end;
-
-                        new_start = segment_end;
-                        input.last_capsule = new_capsule_omg;
+            -- Create the segment
+            local output = runtime_eval({
+                input = {
+                    start_point = start,
+                    end_point = new_end,
+                    prev_shape = prev_shape,
+                    color = capsule_color,
+                    split_distance = split_distance,
+                    last_capsule = last_capsule,
+                    first = first,
+                },
+                code = [[
+                    if input.prev_shape ~= nil then
+                        input.prev_shape:destroy();
                     end;
 
-                    -- Handle the last segment if there's remaining distance
-                    local remaining_distance = distance - (segments * input.split_distance);
-                    if remaining_distance > 0 then
-                        local last_segment_end = end_point;
-                        local new_capsule_omg = Scene:add_capsule({
-                            position = vec2(0, 0),
-                            local_point_a = new_start,
-                            local_point_b = last_segment_end,
-                            radius = 0.05,
-                            is_static = true,
-                            color = capsule_color,
-                        });
+                    local start_point = Input:snap_if_preferred(input.start_point);
+                    local end_point = Input:snap_if_preferred(input.end_point);
 
-                        if input.last_capsule then
+                    local capsule_color = Color:hex(input.color);
+
+                    local new_capsule_omg = Scene:add_capsule({
+                        position = vec2(0, 0),
+                        local_point_a = start_point,
+                        local_point_b = end_point,
+                        radius = 0.05,
+                        is_static = true,
+                        color = capsule_color,
+                    });
+
+                    if input.last_capsule then
+                        Scene:add_hinge_at_world_point({
+                            object_a = new_capsule_omg,
+                            object_b = input.last_capsule,
+                            point = start_point,
+                        });
+                    end;
+
+                    if input.first then
+                        local start_stuff = Scene:get_objects_in_circle({
+                            position = start_point,
+                            radius = 0,
+                        });
+                        if start_stuff[1] ~= nil then
                             Scene:add_hinge_at_world_point({
                                 object_a = new_capsule_omg,
-                                object_b = input.last_capsule,
-                                point = new_start,
+                                object_b = start_stuff[1],
+                                point = start_point,
                             });
                         end;
                     end;
 
                     return {
                         new_start = end_point,
-                        last_capsule = input.last_capsule,
+                        last_capsule = new_capsule_omg,
                     };
-                end;
-            ]]
-        });
-        prev_shape = nil;
-        if output ~= nil then
-            if output.last_capsule ~= nil then
-                last_capsule = output.last_capsule;
-            end;
-            if output.new_start ~= nil then
+                ]]
+            });
+
+            -- Update start point and last capsule for the next segment
+            if output ~= nil then
                 start = output.new_start;
-                table.insert(past_parts, last_capsule);
+                last_capsule = output.last_capsule;
+                table.insert(past_parts, output.last_capsule);
                 first = false;
+            end;
+
+            -- Reduce the remaining distance
+            remaining_distance = (point - start):magnitude();
+        end
+
+        -- Optional: Preview the next segment as a temp one if distance is less than split_distance
+        prev_shape = nil;
+        if remaining_distance > 0 then
+            local output = runtime_eval({
+                input = {
+                    start_point = start,
+                    end_point = point,
+                    prev_shape = prev_shape,
+                    color = capsule_color,
+                },
+                code = [[
+                    local start_point = Input:snap_if_preferred(input.start_point);
+                    local end_point = Input:snap_if_preferred(input.end_point);
+
+                    local capsule_color = Color:hex(input.color);
+                    capsule_color.a = 77;
+
+                    local new_capsule_omg = Scene:add_capsule({
+                        position = vec2(0, 0),
+                        local_point_a = start_point,
+                        local_point_b = end_point,
+                        radius = 0.05,
+                        is_static = true,
+                        color = capsule_color,
+                    });
+                    new_capsule_omg:temp_set_collides(false);
+
+                    return { shape = new_capsule_omg };
+                ]]
+            });
+            if output ~= nil and output.shape ~= nil then
+                prev_shape = output.shape;
             end;
         end;
     end;
