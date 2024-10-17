@@ -55,20 +55,19 @@ function on_pointer_move(point)
                 local end_point = Input:snap_if_preferred(input.end_point);
 
                 local capsule_color = Color:hex(input.color);
-
                 local distance = (end_point - start_point):magnitude();
 
                 if distance > 0 then
-                    if ((distance > input.split_distance) and (not Input:key_pressed("ShiftLeft"))) or (Input:key_just_released("ShiftLeft")) then
-                        local start_stuff = Scene:get_objects_in_circle({
-                            position = start_point,
-                            radius = 0,
-                        });
-                        
+                    local segments = math.floor(distance / input.split_distance);
+                    local segment_vector = (end_point - start_point):normalize() * input.split_distance;
+                    local new_start = start_point;
+
+                    for i = 1, segments do
+                        local segment_end = new_start + segment_vector;
                         local new_capsule_omg = Scene:add_capsule({
                             position = vec2(0, 0),
-                            local_point_a = start_point,
-                            local_point_b = end_point,
+                            local_point_a = new_start,
+                            local_point_b = segment_end,
                             radius = 0.05,
                             is_static = true,
                             color = capsule_color,
@@ -78,58 +77,57 @@ function on_pointer_move(point)
                             Scene:add_hinge_at_world_point({
                                 object_a = new_capsule_omg,
                                 object_b = input.last_capsule,
-                                point = start_point,
+                                point = new_start,
                             });
                         end;
 
-                        if input.first then
-                            if start_stuff[1] ~= nil then
-                                Scene:add_hinge_at_world_point({
-                                    object_a = new_capsule_omg,
-                                    object_b = start_stuff[1],
-                                    point = start_point,
-                                });
-                            end;
-                        end;
+                        new_start = segment_end;
+                        input.last_capsule = new_capsule_omg;
+                    end;
 
-                        return {
-                            new_start = end_point,
-                            last_capsule = new_capsule_omg,
-                        };
-                    else
-                        capsule_color.a = 77;
-
+                    -- Handle the last segment if there's remaining distance
+                    local remaining_distance = distance - (segments * input.split_distance);
+                    if remaining_distance > 0 then
+                        local last_segment_end = end_point;
                         local new_capsule_omg = Scene:add_capsule({
                             position = vec2(0, 0),
-                            local_point_a = start_point,
-                            local_point_b = end_point,
+                            local_point_a = new_start,
+                            local_point_b = last_segment_end,
                             radius = 0.05,
                             is_static = true,
                             color = capsule_color,
                         });
-                        new_capsule_omg:temp_set_collides(false);
 
-                        return {
-                            shape = new_capsule_omg
-                        };
+                        if input.last_capsule then
+                            Scene:add_hinge_at_world_point({
+                                object_a = new_capsule_omg,
+                                object_b = input.last_capsule,
+                                point = new_start,
+                            });
+                        end;
                     end;
+
+                    return {
+                        new_start = end_point,
+                        last_capsule = input.last_capsule,
+                    };
                 end;
             ]]
         });
         prev_shape = nil;
         if output ~= nil then
-            if output.shape ~= nil then
-                prev_shape = output.shape;
+            if output.last_capsule ~= nil then
+                last_capsule = output.last_capsule;
             end;
             if output.new_start ~= nil then
                 start = output.new_start;
-                last_capsule = output.last_capsule;
-                table.insert(past_parts, output.last_capsule);
+                table.insert(past_parts, last_capsule);
                 first = false;
             end;
         end;
     end;
 end;
+
 
 function on_pointer_up(point)
     print("Pointer up!");
