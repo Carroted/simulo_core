@@ -1,0 +1,39 @@
+[tool]
+name = "Drag"
+version = "0.1.0"
+script = "./src/main.lua"
+icon = "./icon.png"
+
+[[property]]
+id = "strength"
+
+name = "Strength"
+tooltip = "How strongly you drag"
+
+input_type = "slider"
+
+default_value = 10.0
+min_value = 2.0
+max_value = 10000.0
+
+[[property]]
+id = "damping"
+
+name = "Damping"
+tooltip = "Lower values makes drag spring oscilate more"
+
+input_type = "slider"
+
+default_value = 0.1
+min_value = 0.0
+max_value = 1.0
+
+[[property]]
+id = "scale_strength_with_mass"
+
+name = "Scale strength with mass"
+tooltip = "With this, objects are moved equally as easily regardless of how heavy they are"
+
+input_type = "toggle"
+
+default_value = false
