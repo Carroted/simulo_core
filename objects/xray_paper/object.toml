@@ -1,0 +1,6 @@
+[object]
+name = "X-Ray Paper"
+version = "0.1.0"
+icon = "./icon.png"
+categories = ["Utilities"]
+description = "High-quality paper for your radiography"

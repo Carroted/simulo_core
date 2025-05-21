@@ -1,0 +1,6 @@
+[object]
+name = "Human"
+version = "0.1.0"
+icon = "./icon.png"
+categories = ["Ragdolls"]
+description = "Organism."

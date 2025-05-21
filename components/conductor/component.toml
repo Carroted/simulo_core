@@ -1,0 +1,20 @@
+[component]
+name = "Conductor"
+version = "0.1.0"
+category = "Electricity"
+
+[[property]]
+id = "exposed"
+name = "Exposed"
+input_type = "toggle"
+
+default_value = true
+
+[[property]]
+id = "resistance"
+name = "Resistance"
+input_type = "slider"
+
+default_value = 0.0
+min_value = 0.0
+max_value = 100.0

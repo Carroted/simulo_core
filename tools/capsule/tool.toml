@@ -1,5 +1,17 @@
 [tool]
-name = "The Formidable Capsuler"
+name = "Capsule"
 version = "0.1.0"
 script = "./src/main.lua"
 icon = "./icon.png"
+
+[[property]]
+id = "radius"
+
+name = "Radius"
+tooltip = "Radius for the capsule"
+
+input_type = "slider"
+
+default_value = 0.1
+min_value = 0.01
+max_value = 10.0

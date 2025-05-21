@@ -1,0 +1,6 @@
+[object]
+name = "Simulon"
+version = "0.1.0"
+icon = "./icon.png"
+categories = ["Ragdolls"]
+description = "A sapient biological organism."

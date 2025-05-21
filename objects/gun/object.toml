@@ -1,0 +1,5 @@
+[object]
+name = "Gun"
+version = "0.1.0"
+icon = "./icon.png"
+description = "Spawn the Player (green thing with arms and legs), make sure you're not paused, and then hover over a spawned gun and press E to pick it up"

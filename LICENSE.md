@@ -1,6 +1,8 @@
+Note: this license applies only to the `core` package, and not to Simulo itself at this time
+
 MIT License
 
-Copyright (c) 2024 Carroted
+Copyright (c) 2025 Carroted
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -1,155 +1,244 @@
 local start = nil;
-local prev_shape_guid = nil;
-local circle_color = 0x000000;
+local overlay = nil;
+local box_color = 0x000000;
 
 local prev_pointer_pos = vec2(0, 0);
+local prev_fixed_pointer_pos = vec2(0, 0);
+local last_sound_pos = vec2(0, 0);
+local accumulated_move = vec2(0, 0);
+local last_grid_pointer_pos = self:preferred_pointer_pos();
+local audio = nil;
+local current_volume = 0;
+local should_play_snap = true;
+local fixed_update = 0;
 
 function on_update()
-    if Input:pointer_just_pressed() then
-        on_pointer_down(Input:pointer_pos());
+    if self:pointer_just_pressed() then
+        on_pointer_down(self:pointer_pos());
     end;
-    if Input:pointer_just_released() then
-        on_pointer_up(Input:pointer_pos());
+    if self:pointer_just_released() then
+        on_pointer_up(self:pointer_pos());
     end;
-    if Input:pointer_pos() ~= prev_pointer_pos then
-        on_pointer_move(Input:pointer_pos());
+    if self:pointer_pos() ~= prev_pointer_pos then
+        on_pointer_move(self:pointer_pos());
     end;
-    prev_pointer_pos = Input:pointer_pos();
+    prev_pointer_pos = self:pointer_pos();
 end;
 
 function on_pointer_down(point)
+    accumulated_move = vec2(0, 0);
+    prev_fixed_pointer_pos = self:pointer_pos();
     print("Pointer down at " .. point.x .. ", " .. point.y);
     start = point;
     -- random rgb color
     local r = math.random(0x50, 0xff);
     local g = math.random(0x50, 0xff);
     local b = math.random(0x50, 0xff);
-    -- put it together to form single color value, like 0xRRGGBB
-    circle_color = r * 0x10000 + g * 0x100 + b;
+    box_color = Color:rgb(r / 0xff, g / 0xff, b / 0xff);
+
+    if overlay == nil then
+        overlay = Overlays:add();
+    end;
+
+    RemoteScene:run({
+        input = { point = point, old_audio = audio },
+        code = [[
+            if input.old_audio ~= nil then input.old_audio:destroy(); end;
+
+            Scene:add_audio({
+                asset = require('core/assets/sounds/shape_start.wav'),
+                position = input.point,
+                volume = 0.1,
+            });
+
+            return Scene:add_audio({
+                asset = require('core/assets/sounds/shape.wav'),
+                position = input.point,
+                volume = 0,
+                pitch = 1,
+                looping = true,
+            });
+        ]],
+        callback = function(output)
+            audio = output;
+        end,
+    });
+
+    last_sound_pos = point;
+    audio = nil;
 end;
 
 function on_pointer_move(point)
+
     if start then
-        local output = runtime_eval({
-            input = {
-                start_point = start,
-                end_point = point,
-                prev_shape_guid = prev_shape_guid,
-                color = circle_color,
-            },
-            code = [[
-                if input.prev_shape_guid ~= nil then
-                    Scene:get_object_by_guid(input.prev_shape_guid):destroy();
-                end;
-
-                local between = Input:key_pressed("ShiftLeft");
-                local start_point = Input:snap_if_preferred(input.start_point);
-                local end_point = Input:snap_if_preferred(input.end_point);
-
-                local diff = end_point - start_point;
-
-                local radius = math.max(math.abs(diff.x), math.abs(diff.y)) / 2;
-                local pos = vec2((end_point.x + start_point.x) / 2, (end_point.y + start_point.y) / 2);
-
-                if not between then
-                    local size = math.max(math.abs(diff.x), math.abs(diff.y));
-                    local new_pos = start_point + vec2(size, size);
-                    if diff.x < 0 then
-                        new_pos.x = start_point.x - size;
-                    end;
-                    if diff.y < 0 then
-                        new_pos.y = start_point.y - size;
-                    end;
-                    end_point = new_pos;
-                    radius = math.max(math.abs(diff.x), math.abs(diff.y)) / 2;
-                    pos = vec2((end_point.x + start_point.x) / 2, (end_point.y + start_point.y) / 2);
-                else
-                    pos = (start_point + end_point) / 2;
-                    radius = math.abs((end_point - pos):magnitude());
-                end;
-
-                local circle_color = Color:hex(input.color);
-                circle_color.a = 77;
-
-                if radius > 0 then
-                    local new_circle_omg = Scene:add_circle({
-                        position = pos,
-                        radius = radius,
-                        is_static = true,
-                        color = circle_color,
+        if should_play_snap and self:grid_enabled() and ((self:grid_pointer_pos() - last_grid_pointer_pos):magnitude() > 0.0) then
+            RemoteScene:run({
+                input = point,
+                code = [[
+                    Scene:add_audio({
+                        asset = require('core/assets/sounds/grid.wav'),
+                        position = input,
+                        volume = 0.7,
+                        pitch = 1.2,
                     });
-                    new_circle_omg:temp_set_collides(false);
-
-                    return {
-                        guid = new_circle_omg.guid
-                    };
-                end;
-            ]]
-        });
-        prev_shape_guid = nil;
-        if output ~= nil then
-            if output.guid ~= nil then
-                prev_shape_guid = output.guid;
-            end;
+                ]],
+            });
+            should_play_snap = false;
         end;
+
+        local start_point = self:snap_if_preferred(start);
+        local end_point = self:snap_if_preferred(point);
+
+        local color = box_color:clone();
+        color.a = 30.0 / 255.0;
+
+            local diff = end_point - start_point;
+
+            local size = math.max(math.abs(diff.x), math.abs(diff.y));
+        if true then
+            local pos = start_point + vec2(size, size);
+            if diff.x < 0 then
+                pos.x = start_point.x - size;
+            end;
+            if diff.y < 0 then
+                pos.y = start_point.y - size;
+            end;
+            end_point = pos;
+        end
+
+        overlay:set_circle({
+            center = (start_point + end_point) / 2,
+            radius = size / 2,
+            color = box_color,
+            fill = color,
+        });
+    end;
+
+    last_grid_pointer_pos = self:preferred_pointer_pos();
+    
+end;
+
+function lerp(a, b, t)
+    return a + (b - a) * t
+end;
+
+function on_fixed_update()
+    accumulated_move += self:pointer_pos() - prev_fixed_pointer_pos;
+    current_volume = lerp(current_volume, math.min(0.04, math.max(0, accumulated_move:magnitude() * 10)), 0.5);
+
+    if audio ~= nil then
+        RemoteScene:run({
+            input = { audio = audio, pitch = current_volume },
+            code = [[
+                input.audio:set_volume(input.pitch);
+            ]],
+        });
+    end;
+
+    accumulated_move = vec2(0, 0);
+    prev_fixed_pointer_pos = self:pointer_pos();
+    fixed_update += 1;
+
+    if fixed_update % 4 == 0 then
+        should_play_snap = true;
     end;
 end;
 
 function on_pointer_up(point)
-    print("Pointer up!");
-    runtime_eval({
-        input = {
-            start_point = start,
-            end_point = point,
-            prev_shape_guid = prev_shape_guid,
-            color = circle_color,
-        },
-        code = [[
-            print("hi im in remote eval for the Epic Finale!!");
+    print("Pointer up! at", point);
 
-            if input.prev_shape_guid ~= nil then
-                print('about to destroy prev_shape_guid ' .. tostring(input.prev_shape_guid));
-                Scene:get_object_by_guid(input.prev_shape_guid):destroy();
-            end;
+    local start_point = self:snap_if_preferred(start);
+    local end_point = self:snap_if_preferred(point);
+    local color = box_color;
 
-            local between = Input:key_pressed("ShiftLeft");
-            local start_point = Input:snap_if_preferred(input.start_point);
-            local end_point = Input:snap_if_preferred(input.end_point);
+    if true then
+        local diff = end_point - start_point;
 
-            local diff = end_point - start_point;
+        local size = math.max(math.abs(diff.x), math.abs(diff.y));
+        local pos = start_point + vec2(size, size);
+        if diff.x < 0 then
+            pos.x = start_point.x - size;
+        end;
+        if diff.y < 0 then
+            pos.y = start_point.y - size;
+        end;
+        end_point = pos;
+    end;
 
-            local radius = math.max(math.abs(diff.x), math.abs(diff.y)) / 2;
-            local pos = vec2((end_point.x + start_point.x) / 2, (end_point.y + start_point.y) / 2);
+    local width = math.abs(end_point.x - start_point.x);
+    local height = math.abs(end_point.y - start_point.y);
 
-            if not between then
-                local size = math.max(math.abs(diff.x), math.abs(diff.y));
-                local new_pos = start_point + vec2(size, size);
-                if diff.x < 0 then
-                    new_pos.x = start_point.x - size;
-                end;
-                if diff.y < 0 then
-                    new_pos.y = start_point.y - size;
-                end;
-                end_point = new_pos;
-                radius = math.max(math.abs(diff.x), math.abs(diff.y)) / 2;
-                pos = vec2((end_point.x + start_point.x) / 2, (end_point.y + start_point.y) / 2);
-            else
-                pos = (start_point + end_point) / 2;
-                radius = math.abs((end_point - pos):magnitude());
-            end;
+    local size = vec2(width, height);
+    local pos = vec2((end_point.x + start_point.x) / 2, (end_point.y + start_point.y) / 2);
 
-            local circle_color = Color:hex(input.color);
 
-            if radius > 0 then
-                local new_circle_omg = Scene:add_circle({
-                    position = pos,
-                    radius = radius,
-                    is_static = false,
-                    color = circle_color,
-                });
-            end;
-        ]]
+    local fill = box_color:clone();
+    fill.a = 30.0 / 255.0;
+
+    overlay:set_circle({
+        center = (start_point + end_point) / 2,
+        radius = size.x / 2,
+        fill = fill,
     });
-    prev_shape_guid = nil;
+
+    if size.x > 0 and size.y > 0 then
+        RemoteScene:run({
+            input = {
+                size = size,
+                pos = pos,
+                color = color,
+                audio = audio,
+            },
+            code = [[
+                if input.audio ~= nil then input.audio:destroy(); end;
+
+                Scene:add_circle({
+                    position = input.pos,
+                    radius = input.size.x / 2,
+                    body_type = BodyType.Dynamic,
+                    color = input.color,
+                });
+
+                Scene:push_undo();
+
+                Scene:add_audio({
+                    asset = require('core/assets/sounds/shape_stop.wav'),
+                    position = input.pos,
+                    volume = 0.1
+                });
+            ]],
+            callback = function(output)
+                if start == nil then
+                    overlay:destroy();
+                    overlay = nil;
+                end;
+            end,
+        });
+    else
+        RemoteScene:run({
+            input = {
+                pos = pos,
+                audio = audio,
+            },
+            code = [[
+                if input.audio ~= nil then input.audio:destroy(); end;
+
+                Scene:add_audio({
+                    asset = require('core/assets/sounds/shape_stop.wav'),
+                    position = input.pos,
+                    volume = 0.1,
+                    pitch = 0.6,
+                });
+            ]],
+            callback = function(output)
+                if start == nil then
+                    overlay:destroy();
+                    overlay = nil;
+                end;
+            end,
+        });
+    end;
+
+    audio = nil;
     start = nil;
 end;

@@ -1,0 +1,25 @@
+[tool]
+name = "Wire"
+version = "0.1.0"
+
+[[property]]
+id = "radius"
+
+name = "Radius"
+tooltip = "Radius for the capsule"
+
+input_type = "slider"
+
+default_value = 0.032
+min_value = 0.01
+max_value = 0.2
+
+[[property]]
+id = "exposed"
+
+name = "Exposed"
+tooltip = "Check this box for copper wires, uncheck for insulated flexible wires"
+
+input_type = "toggle"
+
+default_value = true

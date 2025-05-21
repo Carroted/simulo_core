@@ -1,0 +1,6 @@
+[object]
+name = "Battery"
+version = "0.1.0"
+icon = "./icon.png"
+categories = ["Electricity"]
+description = "A battery is a power source. Make a closed circuit with some conductors (such as using the Wire Tool) so electricity can flow from one end of the battery to the other."

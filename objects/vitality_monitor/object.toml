@@ -1,0 +1,6 @@
+[object]
+name = "Vitality Monitor"
+version = "0.1.0"
+icon = "./icon.png"
+categories = ["Utilities"]
+description = "Reads the vitality percentage of a biological organism. It can do that via touch, or via chains (like ropes)."

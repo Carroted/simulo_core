@@ -1,5 +1,5 @@
 [tool]
-name = "Zzz Z camera"
+name = "Camera"
 version = "0.1.0"
 script = "./src/main.lua"
 icon = "./icon.png"

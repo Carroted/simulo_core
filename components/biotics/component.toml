@@ -1,0 +1,36 @@
+[component]
+name = "Biotics"
+version = "0.1.0"
+category = "Life"
+
+[[property]]
+id = "vitality"
+name = "Vitality"
+input_type = "slider"
+
+default_value = 1.0
+min_value = 0.0
+max_value = 1.0
+
+[[property]]
+id = "natural_color"
+name = "Natural Color"
+input_type = "color"
+
+default_value = 0xbcb0ff
+
+[[property]]
+id = "motor_enabled"
+name = "Motor Enabled"
+input_type = "toggle"
+
+default_value = false
+
+[[property]]
+id = "rest_torque"
+name = "Rest Motor Torque"
+input_type = "slider"
+
+default_value = 0
+min_value = 0
+max_value = 100

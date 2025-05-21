@@ -1,5 +1,29 @@
 [tool]
-name = "Q. Brush"
+name = "Brush"
 version = "0.1.0"
 script = "./src/main.lua"
 icon = "./icon.png"
+
+[[property]]
+id = "radius"
+
+name = "Radius"
+tooltip = "Radius for the capsules"
+
+input_type = "slider"
+
+default_value = 0.05
+min_value = 0.01
+max_value = 10.0
+
+[[property]]
+id = "segment_length"
+
+name = "Segment Length"
+tooltip = "How long does a capsule have to be before we create it? If you hold shift, it'll only create when you release shift (and it'll ignore this setting)"
+
+input_type = "slider"
+
+default_value = 0.1
+min_value = 0.01
+max_value = 5.0

@@ -1,0 +1,6 @@
+[object]
+name = "X-Ray Scanner"
+version = "0.1.0"
+icon = "./icon.png"
+categories = ["Utilities"]
+description = "Print images that show the skeletons of simulons,,,"

@@ -1,0 +1,6 @@
+[object]
+name = "Power Monitor"
+version = "0.1.0"
+icon = "./icon.png"
+categories = ["Electricity", "Utilities"]
+description = "Reads the power it receives. Touch or connect this to a powered and exposed wire."

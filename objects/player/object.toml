@@ -1,0 +1,6 @@
+[object]
+name = "Player"
+version = "0.1.0"
+icon = "./icon.png"
+categories = ["Ragdolls"]
+description = "A platformer player, use WASD. Can pick up gun with E."

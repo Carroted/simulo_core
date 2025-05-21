@@ -1,0 +1,5 @@
+[object]
+name = "Crystal"
+version = "0.1.0"
+icon = "./icon.png"
+description = "Crystals heal biological organisms. Once the crystal is drained of its energy, it will turn gray."

@@ -23,8 +23,8 @@ for i, ground in ipairs(grounds) do
     local box = Scene:add_box({
 		position = vec2(ground[1], ground[2]),
 		size = vec2(ground[3], ground[4]),
-		is_static = true,
-		color = 0xb9a1c4
+		body_type = BodyType.Static,
+		color = 0xb9a1c4,
 	});
 end;
 
@@ -56,7 +56,6 @@ for j = 0, num_y - 1 do
         local box = Scene:add_box({
 			position = vec2(x / 2, y / 2),
 			size = vec2(1, 1),
-			is_static = false,
 			color = color
 		});
     end;

@@ -1,0 +1,13 @@
+[component]
+name = "Free Energy"
+version = "0.1.0"
+category = "Electricity"
+
+[[property]]
+id = "power"
+name = "Power"
+input_type = "slider"
+
+default_value = 40
+min_value = 0.1
+max_value = 500

@@ -1,5 +1,21 @@
 [tool]
-name = "The PolyGone"
+name = "Polygon"
 version = "0.1.0"
 script = "./src/main.lua"
 icon = "./icon.png"
+
+[[property]]
+id = "hold"
+name = "Hold Mode"
+input_type = "toggle"
+
+default_value = true
+
+[[property]]
+id = "min_distance"
+name = "Hold Point Distance"
+input_type = "slider"
+
+default_value = 0.4
+min_value = 0.2
+max_value = 5

@@ -1,0 +1,4 @@
+[component]
+name = "Buoyancy"
+version = "0.1.0"
+# category = "Physics"   (this could be uncommented if we got a set_is_sensor. box2d doesnt support changing that, and so the only way is it being recreated on simulo's end)

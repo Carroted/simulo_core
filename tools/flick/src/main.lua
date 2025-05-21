@@ -1,142 +1,179 @@
-local prev_line = nil;
-local ground_body = nil;
-local dragging = nil;
-local drag_local_point = nil;
+local overlay = nil;          -- For visualizing the line
+local dragging = nil;         -- The object being dragged
+local drag_local_point = nil; -- Local point on the object where dragging started
+local cursor = "default";     -- What to set the cursor to each update
+local point_a = vec2(0, 0);   -- Start point of the line (object's position)
+local last_point = vec2(0, 0);-- Last pointer position
 
-function on_pointer_down(point)
-    local output = runtime_eval({
-        input = {
-            point = point,
-        },
-        code = [[
-            local objects_in_circle = Scene:get_objects_in_circle({
-                position = input.point,
-                radius = 0,
-            });
-
-            if objects_in_circle[1] ~= nil then
-                local obj = objects_in_circle[1];
-                local ground = Scene:add_circle({
-                    position = input.point,
-                    radius = 0.02,
-                    is_static = true,
-                    color = Color:rgba(0,0,0,0),
-                });
-                ground:temp_set_collides(false);
-                return {
-                    success = true,
-                    dragging = obj.guid,
-                    ground_body = ground.guid,
-                    drag_local_point = obj:get_local_point(input.point),
-                };
-            else
-                return { success = false };
-            end;
-        ]]
-    });
-    if output ~= nil and output.success then
-        dragging = output.dragging;
-        ground_body = output.ground_body;
-        drag_local_point = output.drag_local_point;
+function get_line_color()
+    local color = Color:hex(0xffffff); -- White line
+    if dragging == nil then
+        color.a = 0.5; -- Semi-transparent when not dragging
     end;
+    return color;
 end;
 
-function on_pointer_move(point)
-    if ground_body ~= nil and dragging ~= nil then
-        local output = runtime_eval({
+function on_update()
+    local point = self:pointer_pos();
+    
+    -- Update line when mouse moves
+    if dragging ~= nil and (point - last_point):magnitude() > 0.02 then
+        if overlay ~= nil then
+            overlay:set_line({
+                points = {point_a, point},
+                color = get_line_color(),
+            });
+        end;
+    end;
+    last_point = point;
+
+    -- Handle pointer events
+    if self:pointer_just_pressed() then
+        on_pointer_down(point);
+    end;
+    if self:pointer_just_released() then
+        on_pointer_up(point);
+    end;
+
+    -- Set cursor style when hovering over objects
+    if (dragging == nil) and (not self:pointer_pressed()) then
+        RemoteScene:run({
+            input = point,
+            code = [[
+                local hover_objects = Scene:get_objects_in_circle({
+                    position = input,
+                    radius = 0,
+                });
+                return #hover_objects > 0;
+            ]],
+            unreliable = true,
+            callback = function(output)
+                if not self:pointer_pressed() then
+                    if output then
+                        cursor = "grab"; -- Hand opened, showing we can grab
+                    else
+                        cursor = "default";
+                    end;
+                else
+                    cursor = "default";
+                end;
+            end,
+        });
+    end;
+
+    -- Update object position if dragging
+    if dragging ~= nil then
+        RemoteScene:run({
             input = {
-                point = point,
-                ground_body = ground_body,
+                pointer_pos = point,
                 dragging = dragging,
-                prev_line = prev_line,
                 drag_local_point = drag_local_point,
             },
             code = [[
-                if input.prev_line ~= nil then
-                    Scene:get_object_by_guid(input.prev_line):destroy();
-                end;
-
-                function line(line_start, line_end, thickness, color, static)
-                    local line = Scene:add_capsule({
-                        position = vec2(0,0),
-                        local_point_a = line_start,
-                        local_point_b = line_end,
-                        radius = thickness / 2,
-                        is_static = static,
-                        color = color
+                if input.dragging == nil then return nil; end;
+                return input.dragging:get_world_point(input.drag_local_point);
+            ]],
+            unreliable = true,
+            callback = function(output)
+                if output == nil then return; end;
+                point_a = output;
+                if overlay ~= nil then
+                    overlay:set_line({
+                        points = {point_a, self:pointer_pos()},
+                        color = get_line_color(),
                     });
-
-                    line:temp_set_collides(false);
-                    
-                    return line;
                 end;
-
-                local ground = Scene:get_object_by_guid(input.ground_body);
-                local dragging = Scene:get_object_by_guid(input.dragging);
-                ground:set_position(input.point);
-
-                local prev_line = line(input.point, dragging:get_world_point(input.drag_local_point),0.04,0xffffff,true);
-
-                return {
-                    prev_line = prev_line.guid,
-                };
-            ]]
+            end,
         });
-        if output ~= nil and output.prev_line ~= nil then
-            prev_line = output.prev_line;
-        end;
+    end;
+
+    self:set_cursor(cursor);
+end;
+
+function on_pointer_down(point)
+    -- If we're not already dragging something
+    if dragging == nil then
+        overlay = Overlays:add();
+        point_a = point;
+        
+        RemoteScene:run({
+            input = {
+                point = point,
+            },
+            code = [[
+                local hover_objects = Scene:get_objects_in_circle({
+                    position = input.point,
+                    radius = 0,
+                });
+
+                table.sort(hover_objects, function(a, b)
+                    return a:get_z_index() > b:get_z_index()
+                end);
+
+                if #hover_objects > 0 then
+                    local obj = hover_objects[1];
+                    local drag_local_point = obj:get_local_point(input.point);
+                    return {
+                        success = true,
+                        dragging = obj,
+                        drag_local_point = drag_local_point,
+                    };
+                else
+                    return { success = false };
+                end;
+            ]],
+            unreliable = false,
+            callback = function(output)
+                if output and output.success then
+                    dragging = output.dragging;
+                    drag_local_point = output.drag_local_point;
+                    cursor = "grabbing"; -- Closed hand
+                    if overlay == nil then
+                        overlay = Overlays:add();
+                    end;
+                else
+                    if overlay ~= nil then
+                        overlay:destroy();
+                        overlay = nil;
+                    end;
+                end;
+            end,
+        });
     end;
 end;
 
 function on_pointer_up(point)
-    if ground_body ~= nil and dragging ~= nil then
-        local output = runtime_eval({
+    cursor = "default";
+
+    if dragging ~= nil then
+        RemoteScene:run({
             input = {
-                point = point,
-                ground_body = ground_body,
+                release_point = point,
                 dragging = dragging,
-                prev_line = prev_line,
                 drag_local_point = drag_local_point,
+                strength = self:get_property("strength").value,
+                scale_strength_with_mass = self:get_property("scale_strength_with_mass").value,
             },
             code = [[
-                if input.prev_line ~= nil then
-                    Scene:get_object_by_guid(input.prev_line):destroy();
-                end;
+                if input.dragging ~= nil then
+                    local strength = input.strength;
+                    if input.scale_strength_with_mass then
+                        strength *= input.dragging:get_mass();
+                    end;
 
-                if input.ground_body ~= nil then
-                    Scene:get_object_by_guid(input.ground_body):destroy();
+                    local world_point = input.dragging:get_world_point(input.drag_local_point);
+                    local force_vector = world_point - input.release_point;
+                    input.dragging:apply_force(force_vector * strength * 30, world_point);
                 end;
-
-                local dragging = Scene:get_object_by_guid(input.dragging);
-                local vec = dragging:get_world_point(input.drag_local_point) - input.point;
-                dragging:apply_force(vec * 75, dragging:get_world_point(input.drag_local_point));
-            ]]
+            ]],
+            unreliable = false,
         });
-        prev_line = nil;
-        ground_body = nil;
+
         dragging = nil;
+        drag_local_point = nil;
+        if overlay ~= nil then
+            overlay:destroy();
+            overlay = nil;
+        end;
     end;
-end;
-
-local prev_pointer_pos = vec2(0, 0);
-
--- Our on_pointer_down, on_pointer_up etc aren't called by Simulo itself but instead manually in here when we detect changes
-function on_update()
-    local pointer_pos = Input:pointer_pos();
-
-    if Input:pointer_just_pressed() then
-        on_pointer_down(pointer_pos);
-    end;
-
-    if Input:pointer_just_released() then
-        on_pointer_up(pointer_pos);
-    end;
-
-    -- If the pointer moved
-    if pointer_pos ~= prev_pointer_pos then
-        on_pointer_move(pointer_pos);
-    end;
-
-    -- Update previous pointer pos at the end
-    prev_pointer_pos = pointer_pos;
 end;

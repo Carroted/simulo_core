@@ -1,0 +1,6 @@
+[object]
+name = "Wheel"
+version = "0.1.0"
+icon = "./icon.png"
+categories = ["Electricity"]
+description = "Wheels spin when either of their pins are powered. Create a closed circuit (with a battery) and connect a pin with a wire."

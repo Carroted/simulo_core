@@ -1,0 +1,6 @@
+[object]
+name = "Lightbulb"
+version = "0.1.0"
+icon = "./icon.png"
+categories = ["Electricity"]
+description = "Lightbulbs light up when their base is powered. Create a closed circuit (with a battery) and touch the lightbulb base on an exposed wire. Right-click the bulb directly in the middle to change its color and radius."

@@ -1,0 +1,6 @@
+[object]
+name = "Key Input"
+version = "0.1.0"
+icon = "./icon.png"
+categories = ["Electricity"]
+description = "Place this in the middle of a closed circuit (with a battery). Anything that comes after this will only be powered if the specified key is held. You can change the key by right-clicking the box, on its darker gray lower area."
