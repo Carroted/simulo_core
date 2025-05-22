@@ -30,11 +30,15 @@ function on_pointer_down(point)
     prev_fixed_pointer_pos = self:pointer_pos();
     print("Pointer down at " .. point.x .. ", " .. point.y);
     start = point;
-    -- random rgb color
-    local r = math.random(0x50, 0xff);
-    local g = math.random(0x50, 0xff);
-    local b = math.random(0x50, 0xff);
-    box_color = Color:rgb(r / 0xff, g / 0xff, b / 0xff);
+    if self:get_property("randomize_colors").value then
+        -- random rgb color
+        local r = math.random(0x50, 0xff);
+        local g = math.random(0x50, 0xff);
+        local b = math.random(0x50, 0xff);
+        box_color = Color:rgb(r / 0xff, g / 0xff, b / 0xff);
+    else
+        box_color = Color:hex(0xe2d3b8);
+    end;
 
     if overlay == nil then
         overlay = Overlays:add();
