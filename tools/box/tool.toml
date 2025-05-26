@@ -5,16 +5,6 @@ script = "./src/main.lua"
 icon = "./icon.png"
 
 [[property]]
-id = "randomize_colors"
-
-name = "Randomize colors"
-tooltip = "Make boxes colorful instead of giving them all the same drab beige"
-
-input_type = "toggle"
-
-default_value = true
-
-[[property]]
 id = "uranium"
 
 name = "Put uranium in the box"
