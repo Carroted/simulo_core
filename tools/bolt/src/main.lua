@@ -80,13 +80,15 @@ function on_pointer_down(point)
                 
                 dragging = true;
                 
-                -- Create shape overlay first
-                overlay = Overlays:add();
-                if overlay then
-                    print("Created overlay successfully");
-                    update_overlay(original_object_position, original_object_angle);
-                else
-                    print("Failed to create overlay");
+                -- Create shape overlay if move_object is enabled
+                if self:get_property("move_object").value then
+                    overlay = Overlays:add();
+                    if overlay then
+                        print("Created overlay successfully");
+                        update_overlay(original_object_position, original_object_angle);
+                    else
+                        print("Failed to create overlay");
+                    end;
                 end;
             end;
         end,
@@ -174,8 +176,10 @@ function on_pointer_drag(point)
     -- Calculate delta from initial point
     local delta = point - initial_point;
     
-    -- Update the overlay's position, keeping the original angle
-    update_overlay(original_object_position + delta, original_object_angle);
+    -- Update the overlay's position if move_object is enabled
+    if self:get_property("move_object").value and overlay then
+        update_overlay(original_object_position + delta, original_object_angle);
+    end;
     
     -- Clean up previous connection overlay
     if connection_overlay then
@@ -207,6 +211,9 @@ function on_pointer_up(point)
     -- Calculate angle delta (for future use - currently 0)
     local angle_delta = 0;
     
+    -- Check if we should move the object
+    local should_move_object = self:get_property("move_object").value;
+    
     RemoteScene:run({
         input = {
             point = point,
@@ -214,7 +221,8 @@ function on_pointer_up(point)
             original_position = original_object_position,
             original_angle = original_object_angle,
             angle_delta = angle_delta,
-            delta = point - initial_point
+            delta = point - initial_point,
+            should_move_object = should_move_object
         },
         code = [[
             local objs = Scene:get_objects_in_circle({
@@ -242,11 +250,14 @@ function on_pointer_up(point)
             -- Create bolt if we have the first object (object_a)
             -- object_b can be nil, which the API will interpret as bolting to the background
             if object_a then
-                -- Move the object to its final position before bolting
-                object_a:set_position(input.original_position + input.delta);
-                
-                -- Set the angle (original + any delta)
-                object_a:set_angle(input.original_angle + input.angle_delta);
+                -- Only move the object if should_move_object is true
+                if input.should_move_object then
+                    -- Move the object to its final position before bolting
+                    object_a:set_position(input.original_position + input.delta);
+                    
+                    -- Set the angle (original + any delta)
+                    object_a:set_angle(input.original_angle + input.angle_delta);
+                end;
                 
                 local bolt = require('core/lib/bolt.lua');
                 bolt({
