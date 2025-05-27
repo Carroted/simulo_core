@@ -1,6 +1,7 @@
 -- State variables to track dragging
 local dragging = false;
 local initial_point = nil;
+local initial_local_point = nil;
 local initial_object_id = nil;
 local original_object_position = nil;
 local original_object_angle = nil;  -- Track the original angle
@@ -47,6 +48,7 @@ function on_pointer_down(point)
             if #objs > 0 then
                 local obj = objs[1];
                 result.object_id = obj.id;
+                result.local_point = obj:get_local_point(input);
                 result.position = obj:get_position();
                 result.shape = obj:get_shape();
                 result.color = obj:get_color();
@@ -68,6 +70,7 @@ function on_pointer_down(point)
         callback = function(output)
             if output and output.object_id then
                 initial_object_id = output.object_id;
+                initial_local_point = output.local_point;
                 original_object_position = output.position;
                 original_object_angle = output.angle;  -- Store the original angle
                 object_shape = output.shape;
@@ -181,15 +184,40 @@ function on_pointer_drag(point)
         update_overlay(original_object_position + delta, original_object_angle);
     end;
     
-    -- Clean up previous connection overlay
+    RemoteScene:run({
+        input = {
+            local_point = initial_local_point,
+            initial_object_id = initial_object_id,
+            original_position = original_object_position,
+            original_angle = original_object_angle,
+        },
+        code = [[
+            local obj = Scene:get_object(input.initial_object_id);
+            if obj then
+                return obj:get_world_point(input.local_point);
+            end;
+            return input.point; -- Fallback to the pointer position
+        ]],
+        callback = function(connection_start)
+            if connection_start then
+                draw_connection(connection_start, point);
+            end;
+        end,
+    });
+end;
+
+function draw_connection(connection_start, point)
+    if not connection_start or not point then return; end;
+    -- Clean up any existing connection overlay
     if connection_overlay then
         connection_overlay:destroy();
+        connection_overlay = nil;
     end;
     
     -- Add the connection line
     connection_overlay = Overlays:add();
     connection_overlay:set_line({
-        points = {initial_point, point},
+        points = {connection_start, point},
         color = Color:hex(0xFFFFFF)
     });
 end;
@@ -275,6 +303,7 @@ function on_pointer_up(point)
     -- Reset state
     dragging = false;
     initial_point = nil;
+    initial_local_point = nil;
     initial_object_id = nil;
     original_object_position = nil;
     original_object_angle = nil;
