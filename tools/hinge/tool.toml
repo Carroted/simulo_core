@@ -7,7 +7,7 @@ icon = "./icon.png"
 [[property]]
 id = "move_object"
 
-name = "Move first object"
+name = "Move object"
 tooltip = "Move the first object by the amount the cursor moved during the click to ensure both objects overlap"
 
 input_type = "toggle"
