@@ -1,7 +1,7 @@
 -- State variables to track dragging
 local dragging = false;
 local initial_point = nil;
-local initial_local_point = nil;
+local initial_local_point = nil; -- Used for the connection overlay
 local initial_object_id = nil;
 local original_object_position = nil;
 local original_object_angle = nil;  -- Track the original angle
@@ -177,7 +177,7 @@ function on_pointer_drag(point)
     if not dragging or not initial_object_id or not original_object_position then return; end;
     
     -- Calculate delta from initial point
-    local delta = point - initial_point;
+    local delta = self:snap_if_preferred(point) - self:snap_if_preferred(initial_point);
     
     -- Update the overlay's position if move_object is enabled
     if self:get_property("move_object").value and overlay then
@@ -188,8 +188,6 @@ function on_pointer_drag(point)
         input = {
             local_point = initial_local_point,
             initial_object_id = initial_object_id,
-            original_position = original_object_position,
-            original_angle = original_object_angle,
         },
         code = [[
             local obj = Scene:get_object(input.initial_object_id);
@@ -217,7 +215,7 @@ function draw_connection(connection_start, point)
     -- Add the connection line
     connection_overlay = Overlays:add();
     connection_overlay:set_line({
-        points = {connection_start, point},
+        points = {self:snap_if_preferred(connection_start), self:snap_if_preferred(point)},
         color = Color:hex(0xFFFFFF)
     });
 end;
@@ -242,14 +240,18 @@ function on_pointer_up(point)
     -- Check if we should move the object
     local should_move_object = self:get_property("move_object").value;
     
+    -- Use self:snap_if_preferred to respect grid settings
+    local snapped_point = self:snap_if_preferred(point);
+    local snapped_initial_point = self:snap_if_preferred(initial_point);
+
     RemoteScene:run({
         input = {
-            point = point,
+            point = snapped_point,
             initial_object_id = initial_object_id,
             original_position = original_object_position,
             original_angle = original_object_angle,
             angle_delta = angle_delta,
-            delta = point - initial_point,
+            delta = snapped_point - snapped_initial_point,
             should_move_object = should_move_object
         },
         code = [[
