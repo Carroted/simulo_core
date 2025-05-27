@@ -94,25 +94,25 @@ function update_overlay(position, angle)
     end;
     
     -- Set semi-transparent color for ghost object
-    local ghostColor;
+    local ghost_color;
     if object_color then
-        ghostColor = Color:rgba(object_color.r, object_color.g, object_color.b, 0.66);
+        ghost_color = Color:rgba(object_color.r, object_color.g, object_color.b, 0.66);
     else
-        ghostColor = Color:rgba(1, 1, 1, 0.66); -- Default to semi-transparent white
+        ghost_color = Color:rgba(1, 1, 1, 0.66); -- Default to semi-transparent white
     end;
     
     -- Update overlay based on shape type
     if object_shape.shape_type == "box" then
         -- For rectangles, we'll rotate the corners
-        local halfWidth = object_shape.size.x / 2;
-        local halfHeight = object_shape.size.y / 2;
+        local half_width = object_shape.size.x / 2;
+        local half_height = object_shape.size.y / 2;
         
         -- Create rotated rectangle corners
         local corners = {
-            vec2(-halfWidth, -halfHeight):rotate(angle),
-            vec2(halfWidth, -halfHeight):rotate(angle),
-            vec2(halfWidth, halfHeight):rotate(angle),
-            vec2(-halfWidth, halfHeight):rotate(angle)
+            vec2(-half_width, -half_height):rotate(angle),
+            vec2(half_width, -half_height):rotate(angle),
+            vec2(half_width, half_height):rotate(angle),
+            vec2(-half_width, half_height):rotate(angle)
         };
         
         -- Translate corners to the current position
@@ -124,38 +124,38 @@ function update_overlay(position, angle)
         -- Use polygon to represent the rotated box
         overlay:set_polygon({
             points = points,
-            fill = ghostColor
+            fill = ghost_color
         });
     elseif object_shape.shape_type == "circle" then
         -- Circles don't need rotation
         overlay:set_circle({
             center = position,
             radius = object_shape.radius,
-            fill = ghostColor
+            fill = ghost_color
         });
     elseif object_shape.shape_type == "polygon" then
         -- Transform the polygon points based on new position and current angle
-        local transformedPoints = {};
+        local transformed_points = {};
         for i, point in ipairs(object_shape.points) do
             -- Keep the original shape's rotation and add our current rotation
-            local rotatedPoint = point:rotate(angle);
-            transformedPoints[i] = position + rotatedPoint;
+            local rotated_point = point:rotate(angle);
+            transformed_points[i] = position + rotated_point;
         end;
         
         overlay:set_polygon({
-            points = transformedPoints,
-            fill = ghostColor
+            points = transformed_points,
+            fill = ghost_color
         });
     elseif object_shape.shape_type == "capsule" then
         -- Rotate the capsule endpoints
-        local pointA = object_shape.local_point_a:rotate(angle);
-        local pointB = object_shape.local_point_b:rotate(angle);
+        local point_a = object_shape.local_point_a:rotate(angle);
+        local point_b = object_shape.local_point_b:rotate(angle);
         
         overlay:set_capsule({
-            point_a = position + pointA,
-            point_b = position + pointB,
+            point_a = position + point_a,
+            point_b = position + point_b,
             radius = object_shape.radius,
-            fill = ghostColor
+            fill = ghost_color
         });
     end;
 end;
