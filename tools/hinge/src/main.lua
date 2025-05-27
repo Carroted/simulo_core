@@ -22,7 +22,6 @@ function on_update()
 end;
 
 function on_pointer_down(point)
-    print("Pointer down at " .. point.x .. ", " .. point.y);
     initial_point = point;
     
     RemoteScene:run({
@@ -287,6 +286,7 @@ function on_pointer_up(point)
                     point = point,
                     size = 0.3,
                     motor_enabled = input.motor_enabled,
+                    collide_connected = false,
                 });
 
                 Scene:push_undo();

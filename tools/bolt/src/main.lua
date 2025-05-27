@@ -22,7 +22,6 @@ function on_update()
 end;
 
 function on_pointer_down(point)
-    print("Pointer down at " .. point.x .. ", " .. point.y);
     initial_point = point;
     
     RemoteScene:run({
@@ -61,8 +60,6 @@ function on_pointer_down(point)
                     volume = 0.05,
                 });
                 
-                print("Found object: " .. obj.id .. " at position: " .. tostring(result.position.x) .. ", " .. tostring(result.position.y));
-                print("Object angle: " .. result.angle);
             end;
             
             return result;
@@ -77,20 +74,13 @@ function on_pointer_down(point)
                 object_color = output.color;
                 object_angle = output.angle;
                 
-                print("Received object data - ID: " .. initial_object_id);
-                print("Shape type: " .. (object_shape and object_shape.shape_type or "nil"));
-                print("Original angle: " .. original_object_angle);
-                
                 dragging = true;
                 
                 -- Create shape overlay if move_object is enabled
                 if self:get_property("move_object").value then
                     overlay = Overlays:add();
                     if overlay then
-                        print("Created overlay successfully");
                         update_overlay(original_object_position, original_object_angle);
-                    else
-                        print("Failed to create overlay");
                     end;
                 end;
             end;
@@ -103,8 +93,6 @@ function update_overlay(position, angle)
     if not overlay or not object_shape then
         return;
     end;
-    
-    print("Updating overlay at position: " .. tostring(position.x) .. ", " .. tostring(position.y) .. " with angle: " .. angle);
     
     -- Set semi-transparent color for ghost object
     local ghostColor;
