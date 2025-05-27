@@ -7,9 +7,13 @@ local original_object_position = nil;
 local original_object_angle = nil;  -- Track the original angle
 local overlay = nil;
 local connection_overlay = nil;
+local start_attachment_overlay = nil; -- For the start attachment point
+local end_attachment_overlay = nil; -- For the end attachment point
 local object_shape = nil;
 local object_color = nil;
 local object_angle = nil;
+
+local attachment_radius = 0.1 * 0.3 * 2;
 
 function on_update()
     if self:pointer_just_pressed() then
@@ -124,14 +128,16 @@ function update_overlay(position, angle)
         -- Use polygon to represent the rotated box
         overlay:set_polygon({
             points = points,
-            fill = ghost_color
+            fill = ghost_color,
+            color = object_color,
         });
     elseif object_shape.shape_type == "circle" then
         -- Circles don't need rotation
         overlay:set_circle({
             center = position,
             radius = object_shape.radius,
-            fill = ghost_color
+            fill = ghost_color,
+            color = object_color,
         });
     elseif object_shape.shape_type == "polygon" then
         -- Transform the polygon points based on new position and current angle
@@ -144,7 +150,8 @@ function update_overlay(position, angle)
         
         overlay:set_polygon({
             points = transformed_points,
-            fill = ghost_color
+            fill = ghost_color,
+            color = object_color,
         });
     elseif object_shape.shape_type == "capsule" then
         -- Rotate the capsule endpoints
@@ -155,7 +162,8 @@ function update_overlay(position, angle)
             point_a = position + point_a,
             point_b = position + point_b,
             radius = object_shape.radius,
-            fill = ghost_color
+            fill = ghost_color,
+            color = object_color,
         });
     end;
 end;
@@ -165,11 +173,6 @@ function on_pointer_drag(point)
     
     -- Calculate delta from initial point
     local delta = self:snap_if_preferred(point) - self:snap_if_preferred(initial_point);
-    
-    -- Update the overlay's position if move_object is enabled
-    if self:get_property("move_object").value and overlay then
-        update_overlay(original_object_position + delta, original_object_angle);
-    end;
     
     RemoteScene:run({
         input = {
@@ -182,23 +185,52 @@ function on_pointer_drag(point)
                 return obj:get_world_point(input.local_point);
             end;
             return input.point; -- Fallback to the pointer position
-        ]],
+            ]],
         callback = function(connection_start)
             if connection_start then
                 draw_connection(connection_start, point);
             end;
         end,
     });
+    
+    -- Update the overlay's position if move_object is enabled
+    if self:get_property("move_object").value and overlay then
+        update_overlay(original_object_position + delta, original_object_angle);
+    end;
 end;
 
 function draw_connection(connection_start, point)
     if not connection_start or not point then return; end;
+
+    if self:get_property("move_object").value then -- Don't show if attachment won't go there
+        if start_attachment_overlay then
+            start_attachment_overlay:destroy();
+            start_attachment_overlay = nil;
+        end;
+        start_attachment_overlay = Overlays:add();
+        start_attachment_overlay:set_circle({
+            center = self:snap_if_preferred(connection_start),
+            radius = attachment_radius,
+            color = Color:hex(0xFFFFFF),
+        });
+    end;
+
+    if end_attachment_overlay then
+        end_attachment_overlay:destroy();
+        end_attachment_overlay = nil;
+    end;
+    end_attachment_overlay = Overlays:add();
+    end_attachment_overlay:set_circle({
+            center = point,
+            radius = attachment_radius,
+            color = Color:hex(0xFFFFFF),
+        });
+
     -- Clean up any existing connection overlay
     if connection_overlay then
         connection_overlay:destroy();
         connection_overlay = nil;
     end;
-    
     -- Add the connection line
     connection_overlay = Overlays:add();
     connection_overlay:set_line({
@@ -219,6 +251,15 @@ function on_pointer_up(point)
     if connection_overlay then
         connection_overlay:destroy();
         connection_overlay = nil;
+    end;
+
+    if start_attachment_overlay then
+        start_attachment_overlay:destroy();
+        start_attachment_overlay = nil;
+    end;
+    if end_attachment_overlay then
+        end_attachment_overlay:destroy();
+        end_attachment_overlay = nil;
     end;
     
     -- Calculate angle delta (for future use - currently 0)
