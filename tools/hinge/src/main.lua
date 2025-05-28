@@ -236,7 +236,11 @@ function on_pointer_drag(point)
                 local snapped_point
                 if self:get_property("add_to_center").value then
                     snapped_connection_start = connection_start;
-                    snapped_point = original_object_position + delta;
+                    if self:get_property("add_to_center").value then
+                        snapped_point = self:snap_if_preferred(point);
+                    else
+                        snapped_point = original_object_position + delta;
+                    end;
                 else
                     snapped_connection_start = self:snap_if_preferred(connection_start);
                     snapped_point = self:snap_if_preferred(point);
@@ -350,7 +354,7 @@ function on_pointer_up(point)
                 end;
     
                 local objs = Scene:get_objects_in_circle({
-                    position = input.add_to_center and object_a:get_position() or input.point,
+                    position = (input.add_to_center and input.move_object) and object_a:get_position() or input.point,
                     radius = 0,
                 });
     
