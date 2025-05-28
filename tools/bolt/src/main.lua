@@ -227,7 +227,8 @@ function on_pointer_drag(point)
             return input.point; -- Fallback to the pointer position
         ]],
         callback = function(connection_start)
-            if connection_start then
+            -- Check for dragging to prevent lingering overlay
+            if connection_start and dragging then
                 draw_connection(self:snap_if_preferred(connection_start), self:snap_if_preferred(point));
             end;
         end,

@@ -231,7 +231,8 @@ function on_pointer_drag(point)
             return input.point; -- Fallback to the pointer position
             ]],
         callback = function(connection_start)
-            if connection_start then
+            -- Check for dragging to prevent lingering overlay
+            if connection_start and dragging then
                 local snapped_connection_start
                 local snapped_point
                 if self:get_property("add_to_center").value then
