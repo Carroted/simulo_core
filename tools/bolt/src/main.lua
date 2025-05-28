@@ -82,21 +82,25 @@ function on_pointer_down(point)
                 
                 -- Create shape overlay if move_object is enabled
                 if self:get_property("move_object").value then
-                    overlay = Overlays:add();
-                    if overlay then
-                        update_overlay(original_object_position, original_object_angle);
-                    end;
+                    update_overlay(original_object_position, original_object_angle);
                 end;
+                -- Create other three overlays
+                draw_connection(self:snap_if_preferred(point), self:snap_if_preferred(point));
             end;
         end,
     });
 end;
 
 -- Helper function to update the overlay based on object shape and angle
-function update_overlay(position, angle)
-    if not overlay or not object_shape then
+function update_overlay(position, angle, no_outline)
+    if no_outline == nil then no_outline = false; end;
+
+    if not object_shape then
         return;
     end;
+    if not overlay then
+        overlay = Overlays:add();
+    end
     
     -- Set semi-transparent color for ghost object
     local ghost_color;
@@ -105,9 +109,11 @@ function update_overlay(position, angle)
     else
         ghost_color = Color:rgba(1, 1, 1, 0.66); -- Default to semi-transparent white
     end;
-    
+
+    local outline_color = object_color or Color:rgba(1, 1, 1, 1);
+
     -- Update overlay based on shape type
-    if object_shape.shape_type == "box" then
+    if object_shape.shape_type == "box" then -- polygon needed because can't rotate rect
         -- For rectangles, we'll rotate the corners
         local half_width = object_shape.size.x / 2;
         local half_height = object_shape.size.y / 2;
@@ -117,7 +123,7 @@ function update_overlay(position, angle)
             vec2(-half_width, -half_height):rotate(angle),
             vec2(half_width, -half_height):rotate(angle),
             vec2(half_width, half_height):rotate(angle),
-            vec2(-half_width, half_height):rotate(angle)
+            vec2(-half_width, half_height):rotate(angle),
         };
         
         -- Translate corners to the current position
@@ -127,19 +133,34 @@ function update_overlay(position, angle)
         end;
         
         -- Use polygon to represent the rotated box
-        overlay:set_polygon({
-            points = points,
-            fill = ghost_color,
-            color = object_color,
-        });
+        if no_outline then
+            overlay:set_polygon({
+                points = points,
+                fill = ghost_color,
+            });
+        else
+            overlay:set_polygon({
+                points = points,
+                fill = ghost_color,
+                color = outline_color,
+            });
+        end;
     elseif object_shape.shape_type == "circle" then
         -- Circles don't need rotation
-        overlay:set_circle({
-            center = position,
-            radius = object_shape.radius,
-            fill = ghost_color,
-            color = object_color,
-        });
+        if no_outline then
+            overlay:set_circle({
+                center = position,
+                radius = object_shape.radius,
+                fill = ghost_color,
+            });
+        else
+            overlay:set_circle({
+                center = position,
+                radius = object_shape.radius,
+                fill = ghost_color,
+                color = outline_color,
+            });
+        end;
     elseif object_shape.shape_type == "polygon" then
         -- Transform the polygon points based on new position and current angle
         local transformed_points = {};
@@ -148,24 +169,42 @@ function update_overlay(position, angle)
             local rotated_point = point:rotate(angle);
             transformed_points[i] = position + rotated_point;
         end;
-        
-        overlay:set_polygon({
-            points = transformed_points,
-            fill = ghost_color,
-            color = object_color,
-        });
+
+        if no_outline then
+            overlay:set_polygon({
+                points = transformed_points,
+                fill = ghost_color,
+            });
+        else
+            -- Set the polygon with outline color
+            overlay:set_polygon({
+                points = transformed_points,
+                fill = ghost_color,
+                color = outline_color,
+            });
+        end
     elseif object_shape.shape_type == "capsule" then
         -- Rotate the capsule endpoints
         local point_a = object_shape.local_point_a:rotate(angle);
         local point_b = object_shape.local_point_b:rotate(angle);
         
-        overlay:set_capsule({
-            point_a = position + point_a,
-            point_b = position + point_b,
-            radius = object_shape.radius,
-            fill = ghost_color,
-            color = object_color,
-        });
+        if no_outline then
+            overlay:set_capsule({
+                point_a = position + point_a,
+                point_b = position + point_b,
+                radius = object_shape.radius,
+                fill = ghost_color,
+            });
+        else
+            -- Set the capsule with outline color
+            overlay:set_capsule({
+                point_a = position + point_a,
+                point_b = position + point_b,
+                radius = object_shape.radius,
+                fill = ghost_color,
+                color = outline_color,
+            });
+        end;
     end;
 end;
 
@@ -189,78 +228,58 @@ function on_pointer_drag(point)
         ]],
         callback = function(connection_start)
             if connection_start then
-                draw_connection(connection_start, point);
+                draw_connection(self:snap_if_preferred(connection_start), self:snap_if_preferred(point));
             end;
         end,
     });
     
     -- Update the overlay's position if move_object is enabled
-    if self:get_property("move_object").value and overlay then
+    if self:get_property("move_object").value then
         update_overlay(original_object_position + delta, original_object_angle);
     end;
 end;
 
 function draw_connection(connection_start, point)
     if not connection_start or not point then return; end;
+    if not connection_overlay then
+        connection_overlay = Overlays:add();
+    end;
+    if not start_attachment_overlay then
+        start_attachment_overlay = Overlays:add();
+    end
+    if not end_attachment_overlay then
+        end_attachment_overlay = Overlays:add();
+    end;
 
     if self:get_property("move_object").value then -- Don't show if attachment won't go there
-        if end_attachment_overlay then
-            end_attachment_overlay:destroy();
-            end_attachment_overlay = nil;
-        end;
-        end_attachment_overlay = Overlays:add();
         end_attachment_overlay:set_circle({
             center = point,
             radius = attachment_radius,
             color = Color:hex(0xFFFFFF),
         });
     end;
-    
-    if start_attachment_overlay then
-        start_attachment_overlay:destroy();
-        start_attachment_overlay = nil;
-    end;
-    start_attachment_overlay = Overlays:add();
+
     start_attachment_overlay:set_circle({
-        center = self:snap_if_preferred(connection_start),
+        center = connection_start,
         radius = attachment_radius,
         color = Color:hex(0xFFFFFF),
     });
 
-    -- Clean up any existing connection overlay
-    if connection_overlay then
-        connection_overlay:destroy();
-        connection_overlay = nil;
-    end;
-    -- Add the connection line
-    connection_overlay = Overlays:add();
     connection_overlay:set_line({
-        points = {self:snap_if_preferred(connection_start), self:snap_if_preferred(point)},
+        points = {connection_start, point},
         color = Color:hex(0xFFFFFF)
     });
 end;
 
 function on_pointer_up(point)
     if not dragging then return; end;
-    
-    -- Clean up overlays
-    if overlay then
-        overlay:destroy();
-        overlay = nil;
-    end;
-    
-    if connection_overlay then
-        connection_overlay:destroy();
-        connection_overlay = nil;
-    end;
 
-    if start_attachment_overlay then
-        start_attachment_overlay:destroy();
-        start_attachment_overlay = nil;
-    end;
-    if end_attachment_overlay then
-        end_attachment_overlay:destroy();
-        end_attachment_overlay = nil;
+    -- Create outline-less overlay for the final position
+    if self:get_property("move_object").value then
+        -- Calculate delta from initial point
+        local delta = self:snap_if_preferred(point) - self:snap_if_preferred(initial_point);
+
+        update_overlay(original_object_position + delta, original_object_angle, true);
     end;
     
     -- Calculate angle delta (for future use - currently 0)
@@ -338,6 +357,27 @@ function on_pointer_up(point)
                 Scene:push_undo();
             end;
         ]],
+        callback = function()
+            -- Clean up overlays
+            if overlay then
+                overlay:destroy();
+                overlay = nil;
+            end;
+            
+            if connection_overlay then
+                connection_overlay:destroy();
+                connection_overlay = nil;
+            end;
+
+            if start_attachment_overlay then
+                start_attachment_overlay:destroy();
+                start_attachment_overlay = nil;
+            end;
+            if end_attachment_overlay then
+                end_attachment_overlay:destroy();
+                end_attachment_overlay = nil;
+            end;
+        end,
     });
     
     -- Reset state
