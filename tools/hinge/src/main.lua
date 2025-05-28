@@ -203,28 +203,28 @@ function draw_connection(connection_start, point)
     if not connection_start or not point then return; end;
 
     if self:get_property("move_object").value then -- Don't show if attachment won't go there
-        if start_attachment_overlay then
-            start_attachment_overlay:destroy();
-            start_attachment_overlay = nil;
+        if end_attachment_overlay then
+            end_attachment_overlay:destroy();
+            end_attachment_overlay = nil;
         end;
-        start_attachment_overlay = Overlays:add();
-        start_attachment_overlay:set_circle({
-            center = self:snap_if_preferred(connection_start),
-            radius = attachment_radius,
-            color = Color:hex(0xFFFFFF),
-        });
-    end;
-
-    if end_attachment_overlay then
-        end_attachment_overlay:destroy();
-        end_attachment_overlay = nil;
-    end;
-    end_attachment_overlay = Overlays:add();
-    end_attachment_overlay:set_circle({
+        end_attachment_overlay = Overlays:add();
+        end_attachment_overlay:set_circle({
             center = point,
             radius = attachment_radius,
             color = Color:hex(0xFFFFFF),
         });
+    end;
+    
+    if start_attachment_overlay then
+        start_attachment_overlay:destroy();
+        start_attachment_overlay = nil;
+    end;
+    start_attachment_overlay = Overlays:add();
+    start_attachment_overlay:set_circle({
+        center = self:snap_if_preferred(connection_start),
+        radius = attachment_radius,
+        color = Color:hex(0xFFFFFF),
+    });
 
     -- Clean up any existing connection overlay
     if connection_overlay then
@@ -275,6 +275,7 @@ function on_pointer_up(point)
     RemoteScene:run({
         input = {
             point = snapped_point,
+            initial_point = snapped_initial_point,
             initial_object_id = initial_object_id,
             original_position = original_object_position,
             original_angle = original_object_angle,
@@ -320,11 +321,23 @@ function on_pointer_up(point)
                 end;
                 
                 local hinge = require('core/lib/hinge.lua');
-                local point = input.add_to_center and object_a:get_position() or input.point;
+                local hinge_location
+                if input.add_to_center then
+                    -- If add_to_center is true, use the object's center
+                    hinge_location = object_a:get_position();
+                else
+                    if input.should_move_object then
+                        -- If moving the object, use the snapped point
+                        hinge_location = input.point;
+                    else
+                        -- If not moving the object, use the initial point
+                        hinge_location = input.initial_point;
+                    end;
+                end;
                 hinge({
                     object_a = object_a,
                     object_b = object_b, -- Can be nil for background
-                    point = point,
+                    point = hinge_location,
                     size = 0.3,
                     motor_enabled = input.motor_enabled,
                     collide_connected = false,
