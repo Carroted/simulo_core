@@ -3,3 +3,33 @@ name = "Hinge"
 version = "0.1.0"
 script = "./src/main.lua"
 icon = "./icon.png"
+
+[[property]]
+id = "move_object"
+
+name = "Move object"
+tooltip = "Move the first object by the amount the cursor moved during the click to ensure both objects overlap"
+
+input_type = "toggle"
+
+default_value = true
+
+[[property]]
+id = "motor_enabled"
+
+name = "Motor"
+tooltip = "Make the hinge a motor by default"
+
+input_type = "toggle"
+
+default_value = false
+
+[[property]]
+id = "add_to_center"
+
+name = "Center hinge"
+tooltip = "Always make the hinge in the center of the first object"
+
+input_type = "toggle"
+
+default_value = false
