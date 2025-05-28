@@ -9,4 +9,4 @@ You can prevent Simulo from adding/replacing `core` by setting `replace_core` to
 ## Credits
 
 - `nikolass.avi` for skeleton sprites
-- Interrobang for amazing improvements to bolt and hinge (#2)
+- Interrobang for [amazing improvements to bolt and hinge](https://github.com/Carroted/simulo_core/pull/2)
