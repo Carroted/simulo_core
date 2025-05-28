@@ -209,7 +209,7 @@ end;
 
 function on_pointer_drag(point)
     if not dragging or not initial_object_id or not original_object_position then return; end;
-    
+        
     -- Calculate delta from initial point
     local delta = self:snap_if_preferred(point) - self:snap_if_preferred(initial_point);
     
@@ -217,17 +217,31 @@ function on_pointer_drag(point)
         input = {
             local_point = initial_local_point,
             initial_object_id = initial_object_id,
+            add_to_center = self:get_property("add_to_center").value,
         },
         code = [[
             local obj = Scene:get_object(input.initial_object_id);
             if obj then
-                return obj:get_world_point(input.local_point);
+                if input.add_to_center then
+                    return obj:get_position();
+                else
+                    return obj:get_world_point(input.local_point);
+                end;
             end;
             return input.point; -- Fallback to the pointer position
             ]],
         callback = function(connection_start)
             if connection_start then
-                draw_connection(self:snap_if_preferred(connection_start), self:snap_if_preferred(point));
+                local snapped_connection_start
+                local snapped_point
+                if self:get_property("add_to_center").value then
+                    snapped_connection_start = connection_start;
+                    snapped_point = original_object_position + delta;
+                else
+                    snapped_connection_start = self:snap_if_preferred(connection_start);
+                    snapped_point = self:snap_if_preferred(point);
+                end;
+                draw_connection(snapped_connection_start, snapped_point);
             end;
         end,
     });
@@ -305,27 +319,8 @@ function on_pointer_up(point)
             add_to_center = self:get_property("add_to_center").value,
         },
         code = [[
-            local objs = Scene:get_objects_in_circle({
-                position = input.point,
-                radius = 0,
-            });
-
-            table.sort(objs, function(a, b)
-                return a:get_z_index() > b:get_z_index()
-            end);
-            
             local object_a = Scene:get_object(input.initial_object_id);
             local object_b = nil;
-            
-            -- Find the second object (not the one we're dragging)
-            if #objs > 0 then
-                -- Check if we have another object under the pointer
-                if object_a and objs[1].id == input.initial_object_id and #objs > 1 then
-                    object_b = objs[2];
-                elseif object_a and objs[1].id ~= input.initial_object_id then
-                    object_b = objs[1];
-                end;
-            end;
             
             -- Create hinge if we have the first object (object_a)
             -- object_b can be nil, which the API will interpret as connecting to the background
@@ -353,6 +348,26 @@ function on_pointer_up(point)
                         hinge_location = input.initial_point;
                     end;
                 end;
+    
+                local objs = Scene:get_objects_in_circle({
+                    position = input.add_to_center and object_a:get_position() or input.point,
+                    radius = 0,
+                });
+    
+                table.sort(objs, function(a, b)
+                    return a:get_z_index() > b:get_z_index()
+                end);
+                
+                -- Find the second object (not the one we're dragging)
+                if #objs > 0 then
+                    -- Check if we have another object under the pointer
+                    if object_a and objs[1].id == input.initial_object_id and #objs > 1 then
+                        object_b = objs[2];
+                    elseif object_a and objs[1].id ~= input.initial_object_id then
+                        object_b = objs[1];
+                    end;
+                end;
+
                 hinge({
                     object_a = object_a,
                     object_b = object_b, -- Can be nil for background
