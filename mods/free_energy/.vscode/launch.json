@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "simulo",
+            "request": "launch",
+            "name": "Run Main (Simulo)",
+            "program": "./src/main.lua",
+            "focus": true,
+            "refresh": true
+        }
+    ]
+}

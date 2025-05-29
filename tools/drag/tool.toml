@@ -12,7 +12,7 @@ tooltip = "How strongly you drag"
 
 input_type = "slider"
 
-default_value = 10.0
+default_value = 20.0
 min_value = 2.0
 max_value = 10000.0
 

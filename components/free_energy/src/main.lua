@@ -87,7 +87,10 @@ function on_event(id, data)
         -- Store resistance if provided
         if data.resistance then
             circuit_resistances[data.id] = data.resistance;
-        end
+        end;
+    elseif id == "core/free_energy_toggle" then
+        self_component:destroy();
+        return true; -- Tell it this got removed. Important so it knows not to add this component
     end;
 end;
 
