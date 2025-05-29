@@ -91,7 +91,7 @@ function on_update()
 
                                 if not removed then
                                     for id, obj in pairs(circuit_objs) do
-                                        obj:add_component({ hash = require("./components/free_energy") });
+                                        obj:add_component({ hash = require("core/components/free_energy") });
                                         break;
                                     end;
                                 end;
