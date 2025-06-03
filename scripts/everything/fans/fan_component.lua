@@ -47,6 +47,22 @@ local particle_component = Scene:add_component_def{
             min_value = 0.1,
             max_value = 10,
         },
+        {
+            id = "velocity_x",
+            name = "Velocity X",
+            input_type = "slider",
+            default_value = 1,
+            min_value = -999,
+            max_value = 999,
+        },
+        {
+            id = "velocity_y",
+            name = "Velocity Y",
+            input_type = "slider",
+            default_value = 1,
+            min_value = -999,
+            max_value = 999,
+        },
     }
 }
 local function make_particle(position, velocity, size)
@@ -55,7 +71,7 @@ local function make_particle(position, velocity, size)
         local_position = position,
         images = {
             {
-                texture = require("core/assets/textures/particle.png"),
+                texture = require("core/assets/textures/fan_particle.png"),
                 scale = vec2(0,0),
             },
         },
@@ -84,7 +100,7 @@ local function make_particles(p1, vector, velocity, surface_length, wind_speed)
             local distance = math.random()
             local position = p1 + vector * distance
             local size = surface_length * 0.01
-            make_particle(position, velocity/7, size)
+            make_particle(position, velocity/7/60, size)
         end
         -- if math.random() < 0.0001*wind_direction:magnitude() then
         --     local particle_velocity = wind_direction/10
@@ -215,7 +231,7 @@ function on_start(saved_data)
                     name = "Fan Attachment",
                     version = "0.1.0",
                     id = "core/fan_attachment",
-                    icon = require("@core/assets/textures/icon.png"),
+                    icon = require("core/assets/textures/fan.png"),
                     code = require(base_filepath.."fan_attachment_component.lua", "string"),
                     properties = {
                         {
