@@ -28,7 +28,7 @@ end
 
 local particle_component = Scene:add_component_def{
     name = "Particle",
-    id = "@interrobang/fans/particle",
+    id = "core/fan_particle",
     version = "0.1.0",
 
     code = require(base_filepath.."fan_particle_component.lua", "string"),
@@ -209,7 +209,7 @@ function on_start(saved_data)
                 component = {
                     name = "Fan Attachment",
                     version = "0.1.0",
-                    id = "@interrobang/fans/fan_attachment",
+                    id = "core/fan_attachment",
                     icon = require("@core/assets/textures/icon.png"),
                     code = require(base_filepath.."fan_attachment_component.lua", "string"),
                     properties = {
