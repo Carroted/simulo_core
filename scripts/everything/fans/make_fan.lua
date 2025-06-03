@@ -58,7 +58,7 @@ local function make_into_fan(thingy, multiplier, size_multiplier)
 end;
 
 local small_fan = Scene:add_box({
-    position = vec2(0, 0),
+    position = vec2(0, 5),
     size = vec2(0.1, 1), -- meters
     body_type = BodyType.Dynamic,
     color = Color:hex(0xafacac),
