@@ -6,14 +6,16 @@ local function set_property_value(component, key, value)
     component:set_property(key, prop);
 end;
 
+local base_filepath = 'core/scripts/everything/fans/'
+
 local conductor = require ('core/components/conductor');
 local fan_component = Scene:add_component_def{
     name = "Fan",
-    id = "@interrobang/fans/fan",
+    id = "core/fan",
     version = "0.2.0",
 
-    code = require("./packages/@interrobang/fans/components/fan/src/main.lua", "string"),
-    icon = require("@interrobang/fans/assets/textures/icon.png"),
+    code = require(base_filepath.."fan_component.lua", "string"),
+    icon = require("core/assets/textures/fan.png"),
     properties = {
         {
             id = "multiplier",

@@ -2,6 +2,8 @@
 Component for fans
 --]]
 
+local base_filepath = 'core/scripts/everything/fans/'
+
 local debug = false
 
 local rays_per_meter = 10
@@ -29,7 +31,7 @@ local particle_component = Scene:add_component_def{
     id = "@interrobang/fans/particle",
     version = "0.1.0",
 
-    code = require("@interrobang/fans/components/particle/src/main.lua", "string"),
+    code = require(base_filepath.."fan_particle_component.lua", "string"),
     properties = {
         {
             id = "size_multiplier",
@@ -47,7 +49,7 @@ local function make_particle(position, velocity, size)
         local_position = position-velocity,
         images = {
             {
-                texture = require("@interrobang/fans/assets/textures/particle.png"),
+                texture = require("core/assets/textures/particle.png"),
                 scale = vec2(0,0),
                 offset = velocity,
             },
@@ -194,12 +196,12 @@ function on_start(saved_data)
                 local_angle = angle,
                 images = {
                     {
-                        texture = require("@interrobang/fans/assets/textures/fan_blades.png"), -- this gets scaled
+                        texture = require("core/assets/textures/fan_blades.png"), -- this gets scaled
                         scale = vec2(0, 0),
                         color = Color:rgb(0, 0, 0),
                     },
                     {
-                        texture = require("@interrobang/fans/assets/textures/fan_center.png"), -- this stays still
+                        texture = require("core/assets/textures/fan_center.png"), -- this stays still
                         scale = vec2(0, 0),
                         color = Color:rgb(0, 0, 0),
                     }
@@ -208,8 +210,8 @@ function on_start(saved_data)
                     name = "Fan Attachment",
                     version = "0.1.0",
                     id = "@interrobang/fans/fan_attachment",
-                    icon = require("@interrobang/fans/assets/textures/icon.png"),
-                    code = require("@interrobang/fans/components/fan_attachment/src/main.lua", "string"),
+                    icon = require("@core/assets/textures/icon.png"),
+                    code = require(base_filepath.."fan_attachment_component.lua", "string"),
                     properties = {
                         {
                             id = "color",
