@@ -1913,6 +1913,11 @@ end;
 xray();
 
 
+-- Fans
+local make_fan = require('core/scripts/everything/fans/make_fan.lua');
+make_fan()
+
+
 local simulon = require('core/lib/simulon.lua');
 
 simulon({position = vec2(-10, 2)})

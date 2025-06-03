@@ -1,3 +1,5 @@
+local function do_thing()
+
 local function set_property_value(component, key, value)
     local prop = component:get_property(key);
     prop.value = value;
@@ -121,3 +123,7 @@ make_into_fan(small_fan)
 --     body_type = BodyType.Static,
 --     color = Color:rgb(0.1, 0.1, 0.1), -- grey
 -- }
+
+end
+
+return do_thing
