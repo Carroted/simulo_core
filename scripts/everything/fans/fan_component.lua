@@ -26,6 +26,12 @@ local function get_force(rpm)
     return rpm/60
 end
 
+local function set_property_value(component, key, value)
+    local prop = component:get_property(key);
+    prop.value = value;
+    component:set_property(key, prop);
+end;
+
 local particle_component = Scene:add_component_def{
     name = "Particle",
     id = "core/fan_particle",
@@ -46,19 +52,18 @@ local particle_component = Scene:add_component_def{
 local function make_particle(position, velocity, size)
     local particle = Scene:add_attachment{
         parent = nil,
-        local_position = position-velocity,
+        local_position = position,
         images = {
             {
                 texture = require("core/assets/textures/particle.png"),
                 scale = vec2(0,0),
-                offset = velocity,
             },
         },
     }
     local comp = particle:add_component({hash = particle_component})
-    local prop = comp:get_property("size_multiplier")
-    prop.value = size
-    comp:set_property("size_multiplier", prop)
+    set_property_value(comp, "size_multiplier", size)
+    set_property_value(comp, "velocity_x", velocity.x)
+    set_property_value(comp, "velocity_y", velocity.y)
     
     -- local particle = Scene:add_circle{
     --     position = position,
