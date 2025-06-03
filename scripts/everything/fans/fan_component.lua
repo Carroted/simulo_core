@@ -109,13 +109,6 @@ local function get_bounding_box_dimensions(range, fan_attachment)
     local x = shape.size.x
     local y = shape.size.y
     local mult = self_component:get_property("size_multiplier").value
-    -- if shape.size.x > shape.size.y then
-    --     local corner = fan_attachment:get_world_point(vec2(-x/2*mult, 0))
-    --     local perpendicular_wind_direction = fan_attachment:get_world_point(vec2(x/2*mult, 0)) - corner
-    --     local wind_direction = fan_attachment:get_world_point(vec2(0, range + y/2)) - fan_attachment:get_world_point(vec2(0, y/2))
-    --     local surface_length = x*mult
-    --     return corner, perpendicular_wind_direction, wind_direction, surface_length
-    -- else
     local corner = fan_attachment:get_world_point(vec2(0, -y/2*mult))
     local perpendicular_wind_direction = fan_attachment:get_world_point(vec2(0, y/2*mult)) - corner
     local wind_direction = fan_attachment:get_world_point(vec2(range + x/2, 0)) - fan_attachment:get_world_point(vec2(x/2, 0))
@@ -306,33 +299,4 @@ function on_step()
 
 
     time = time + 1
-
-    -- for i = 1, #particles do
-    --     local particle = particles[i]
-    --     if particle then
-    --         print("particle", i)
-    --         local images = particle:get_images()
-    --         local velocity = images[1].offset / 60
-    --         particle:set_local_position(particle:get_local_position() + velocity)
-    --         local scale = images[1].scale
-    --         local is_flipped = (particle.local_angle == 1)
-    --         if not is_flipped then
-    --             if scale.x < 0.1 then
-    --                 images[1].scale = images[1].scale + vec2(0.001, 0.001)
-    --                 print("scale", scale)
-    --                 particle:set_images(images)
-    --             else
-    --                 particle.local_angle = 1
-    --             end
-    --         else
-    --             if scale.x > 0 then
-    --                 images[1].scale = images[1].scale - vec2(0.001, 0.001)
-    --                 print("scale", scale)
-    --                 particle:set_images(images)
-    --             else
-    --                 --particle:destroy()
-    --             end
-    --         end
-    --     end
-    -- end
 end
