@@ -93,8 +93,8 @@ local function make_particle(position, velocity, size)
 end
 
 local function make_particles(p1, vector, velocity, surface_length, wind_speed, time)
-    local particle_count = wind_speed*4
-    if time % particle_count == 0 then
+    local particle_delay = 1/wind_speed*500
+    if time % particle_delay == 0 then
         
         local distance = math.random()
         local position = p1 + vector * distance
@@ -109,7 +109,7 @@ local function get_bounding_box_dimensions(range, fan_attachment)
     local x = shape.size.x
     local y = shape.size.y
     local mult = self_component:get_property("size_multiplier").value
-    local corner = fan_attachment:get_world_point(vec2(0, -y/2*mult))
+    local corner = fan_attachment:get_world_point(vec2(-0.01, -y/2*mult))
     local perpendicular_wind_direction = fan_attachment:get_world_point(vec2(0, y/2*mult)) - corner
     local wind_direction = fan_attachment:get_world_point(vec2(range + x/2, 0)) - fan_attachment:get_world_point(vec2(x/2, 0))
     local surface_length = y*mult
