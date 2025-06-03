@@ -6,14 +6,13 @@ local function set_property_value(component, key, value)
     component:set_property(key, prop);
 end;
 
-local base_filepath = 'core/scripts/everything/fans/'
+local base_filepath = 'core/scripts/everything/fans/';
 
-local conductor = require ('core/components/conductor');
-local fan_component = Scene:add_component_def{
+local conductor = require('core/components/conductor');
+local fan_component = Scene:add_component_def({
     name = "Fan",
     id = "core/fan",
     version = "0.2.0",
-
     code = require(base_filepath.."fan_component.lua", "string"),
     icon = require("core/assets/textures/fan.png"),
     properties = {
@@ -41,32 +40,31 @@ local fan_component = Scene:add_component_def{
 
         }
     }
-}
+});
 
 local function make_into_fan(thingy, multiplier, size_multiplier)
-        
     -- Add conductor components to base
     local conductivity = thingy:add_component({ hash = conductor });
     set_property_value(conductivity, "resistance", 0);
-    set_property_value(conductivity , "exposed", true);
+    set_property_value(conductivity, "exposed", true);
 
-    local fan = thingy:add_component({hash = fan_component})
+    local fan = thingy:add_component({ hash = fan_component });
     if multiplier then
         set_property_value(fan, "multiplier", multiplier);
-    end
+    end;
     if size_multiplier then
         set_property_value(fan, "size_multiplier", size_multiplier);
-    end
-end
+    end;
+end;
 
-local small_fan = Scene:add_box{
+local small_fan = Scene:add_box({
     position = vec2(0, 0),
     size = vec2(0.1, 1), -- meters
     body_type = BodyType.Dynamic,
     color = Color:hex(0xafacac),
-}
-small_fan:set_density(10)
-make_into_fan(small_fan)
+});
+small_fan:set_density(10);
+make_into_fan(small_fan);
 
 
 -- local big_fan = Scene:add_box{
@@ -126,6 +124,6 @@ make_into_fan(small_fan)
 --     color = Color:rgb(0.1, 0.1, 0.1), -- grey
 -- }
 
-end
+end;
 
-return do_thing
+return do_thing;
