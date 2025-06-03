@@ -1,6 +1,5 @@
 Scene:reset();
 
-
 -- Plus Terminal
 local plus_hash = Scene:add_component_def({
     name = "Plus",
@@ -40,7 +39,7 @@ local plus_hash = Scene:add_component_def({
                 -- Skip if already processed
                 if data.visited[self.id] then
                     return;
-                end
+                end;
                 
                 -- Mark as visited
                 data.visited[self.id] = true;
@@ -145,13 +144,13 @@ local minus_hash = Scene:add_component_def({
                 -- Terminal condition
                 if visited[source_id] and power_at_node[source_id] >= current_power then
                     return;
-                end
+                end;
                 
                 -- Update power at this node
                 power_at_node[source_id] = power_at_node[source_id] or 0;
                 if current_power > power_at_node[source_id] then
                     power_at_node[source_id] = current_power;
-                end
+                end;
                 
                 -- Mark as visited
                 visited[source_id] = true;
@@ -166,14 +165,14 @@ local minus_hash = Scene:add_component_def({
                     if not path[target_id] then
                         -- Copy path and add this node
                         local new_path = {};
-                        for k, v in pairs(path) do new_path[k] = v; end
+                        for k, v in pairs(path) do new_path[k] = v; end;
                         new_path[target_id] = true;
                         
                         -- Calculate power for connected node - resistance already applied
                         calculate_from_source(target_id, outgoing_power, new_path);
-                    end
-                end
-            end
+                    end;
+                end;
+            end;
             
             -- Start calculation from the minus terminal
             calculate_from_source(self.id, initial_power, {[self.id] = true});
@@ -196,7 +195,7 @@ local minus_hash = Scene:add_component_def({
                 -- Store resistance if provided
                 if data.resistance then
                     circuit_resistances[data.id] = data.resistance;
-                end
+                end;
                 
                 -- Check if this is the plus terminal
                 if data.is_plus then
@@ -1896,7 +1895,7 @@ local scanner_height = (0.5 + extra) - 0.436 - 0.004;
                 else
                     text:set_texts({{ content = "Ready. Press the red button.", color = 0xa1fdb2, font_size = 0.05, font_resolution = 800 }});
                 end;
-            end
+            end;
         ]],
     });
 
@@ -1913,7 +1912,12 @@ end;
 xray();
 
 
+-- Fans
+local make_fan = require('core/scripts/everything/fans/make_fan.lua');
+make_fan();
+
+
 local simulon = require('core/lib/simulon.lua');
 
-simulon({position = vec2(-10, 2)})
-simulon({color = Color:hex(0x9567bd)})
+simulon({position = vec2(-10, 2)});
+simulon({color = Color:hex(0x9567bd)});
