@@ -92,21 +92,14 @@ local function make_particle(position, velocity, size)
     table.insert(particles, particle)
 end
 
-local function make_particles(p1, vector, velocity, surface_length, wind_speed)
-    local particle_count = wind_speed/500
-    if math.random() < particle_count then
+local function make_particles(p1, vector, velocity, surface_length, wind_speed, time)
+    local particle_count = wind_speed*4
+    if time % particle_count == 0 then
         
-        for i = 1, math.ceil(particle_count) do
-            local distance = math.random()
-            local position = p1 + vector * distance
-            local size = surface_length * 0.01
-            make_particle(position, velocity/7/60, size)
-        end
-        -- if math.random() < 0.0001*wind_direction:magnitude() then
-        --     local particle_velocity = wind_direction/10
-        --     local particle_position = ray_origin
-        --     make_particle(particle_position, particle_velocity)
-        -- end
+        local distance = math.random()
+        local position = p1 + vector * distance
+        local size = surface_length * 0.01
+        make_particle(position, velocity/7/60, size)
     end
 end
 
@@ -290,7 +283,7 @@ function on_step()
     local ray_gap = perpendicular_wind_direction / total_rays
 
     if not self_component:get_property("disable_particles").value then
-        make_particles(ray_start, perpendicular_wind_direction, wind_direction, surface_length, force)
+        make_particles(ray_start, perpendicular_wind_direction, wind_direction, surface_length, force, time)
     end
 
     local hits = get_ray_hits(ray_start, ray_gap, total_rays, wind_direction)
