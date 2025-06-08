@@ -330,7 +330,7 @@ local function player(tbl)
         local_anchor_b = vec2(0, (0.8 * size) - ((0.7 / 2.0) * size)),
         length = 0.005,
         stiffness = 100.0 * size,
-        damping = 0.0,
+        damping = 0.5,
         attachment = atch,
     });
 
