@@ -633,15 +633,15 @@ function on_step(dt)
         end
     end
 
-    --local debug = player:key_pressed("T")
+    local debug = true--player:key_pressed("T")
 
     update_camera()
     check_ground()
     update_recoil()
     local left_pivot_world, right_pivot_world = calculate_arm_pivots()
-    --if not debug then
+    if not debug then
         handle_locomotion(left_pivot_world, right_pivot_world)
-    --end
+    end
     apply_forces()
     handle_arms(left_pivot_world, right_pivot_world)
 end
