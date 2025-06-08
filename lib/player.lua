@@ -99,7 +99,7 @@ local function player(tbl)
         radius = 0.07854984894 * size,
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
-        friction = 0.2,
+        friction = 0,
         restitution = 0,
     });
 
@@ -148,7 +148,7 @@ local function player(tbl)
         radius = 0.07854984894 * size,
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
-        friction = 0.2,
+        friction = 0,
         restitution = 0,
     });
 
