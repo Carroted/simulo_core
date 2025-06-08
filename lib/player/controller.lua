@@ -192,7 +192,7 @@ function calculate_motor_speed_for_leg_angle(current_angle, target_angle, kp, ma
     angle_error = math.atan2(math.sin(angle_error), math.cos(angle_error));
     local desired_speed = kp * angle_error;
     desired_speed = math.clamp(desired_speed, -max_speed, max_speed);
-    return desired_speed;
+    return -desired_speed;
 end
 
 function lerp_vec2(v1, v2, t)
