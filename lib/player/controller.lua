@@ -407,9 +407,6 @@ function on_step(dt)
     end
 
     local function calculate_nudge_direction()
-        if jumping then
-            return 0;
-        end;
         local move_left = player:key_pressed("A");
         local move_right = player:key_pressed("D");
         if move_left and not move_right then
@@ -458,7 +455,7 @@ function on_step(dt)
     end
 
     local function apply_forces()
-        nudge_direction = calculate_nudge_direction()
+        local nudge_direction = calculate_nudge_direction()
 
         body:apply_force_to_center(ground_surface_normal * 10)
         if left_foot then
@@ -470,9 +467,9 @@ function on_step(dt)
             if fp_world then right_foot:apply_force(ground_surface_normal * -5, fp_world) end
         end
 
-        if math.abs(nudge_direction) > 0.05 then
+        if math.abs(nudge_direction) > 0 then -- If keys are pressed
             body:apply_linear_impulse_to_center(vec2(nudge_direction * NUDGE_IMPULSE, 0))
-        elseif on_ground then
+        else -- If no keys are pressed, apply horizontal damping
             local current_velocity = body:get_linear_velocity()
             if current_velocity then
                 local damping_impulse_x = -HORIZONTAL_DAMPING_FACTOR * ground_friction * current_velocity.x
