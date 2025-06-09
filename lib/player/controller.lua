@@ -21,6 +21,37 @@ local right_arm = nil;
 
 local player = Scene:get_host();
 
+-- Math functions
+local function dot(v1, v2)
+    return v1.x * v2.x + v1.y * v2.y
+end
+local function reflect(v, normal)
+    local v_mag = v:magnitude()
+    v = v:normalize()
+    normal = normal:normalize()
+    local dot_product = dot(v, normal)
+    return vec2(v.x - 2 * dot_product * normal.x, v.y - 2 * dot_product * normal.y) * v_mag
+end
+
+-- Physics functions
+local function get_self_mass()
+    if body and left_foot and right_foot and left_arm and right_arm and self then
+        return body:get_mass() + left_foot:get_mass() + right_foot:get_mass() +
+               left_arm:get_mass() + right_arm:get_mass() + self:get_mass()
+    else
+        return 1.0
+    end
+end
+local function get_gravity_force()
+    return Scene:get_gravity() * get_self_mass()
+end
+local function down()
+    return Scene:get_gravity():normalize()
+end
+local function up()
+    return -down()
+end
+
 -- Holding State Variables
 local holding = nil;
 local holding_point_left = nil;  -- Local point on object for LEFT arm when NOT flipped
@@ -46,9 +77,18 @@ local MAX_MOTOR_SPEED_FOR_LEG_CONTROL = 15.0;
 local WALK_TORQUE = 200.0;
 local JUMP_TORQUE = 250.0;
 local IDLE_TORQUE = 5.0;
-local NUDGE_IMPULSE = 0.04;
-local HORIZONTAL_DAMPING_FACTOR = 0.2;
 local MAX_HOLD_DISTANCE = 0.4;
+
+-- Movement arguments
+local movement_parameters = {
+    acceleration_time = 10; -- Multiplies the time it takes to reach a given speed
+    max_speed = 5; -- Asymptote of the velocity curve
+    damping_base = 0.8; -- Velocity is multiplied by this every frame when button is released
+    jump_impulse = 3.0; -- Impulse applied when jumping
+    jump_hold_force = 3.0; -- Force applied while holding jump button
+    additional_gravity_force = 3.0; -- Additional force applied to body in the downward direction
+};
+
 
 -- Velocity History Tracking (for Drops)
 local max_history_frames = 10;
@@ -59,8 +99,9 @@ local holding_cumulative_time = 0;
 -- Ground State & Jumping
 local on_ground = false;
 local ground_friction = 0.1;
-local ground_surface_normal = vec2(0, 1);
+local ground_surface_normal = up();
 local jumping = false;
+local just_jumped = false;
 local jump_end_timer = 0;
 
 -- Activation & Recoil State
@@ -280,8 +321,8 @@ end
 function on_update(dt)
     local function handle_jump()
         if player:key_just_pressed("W") and on_ground then
-            if body then body:apply_linear_impulse_to_center(vec2(0, 2)); end
             jumping = true;
+            just_jumped = true;
             jump_end_timer = 0.5;
         end
     end
@@ -337,50 +378,67 @@ function on_step(dt)
     end
 
     local function check_ground()
-        local ground_check_origin = body:get_world_point(vec2(0, -0.2))
-        if ground_check_origin then
-            local hits = Scene:raycast({
-                origin = ground_check_origin, direction = vec2(0, -1),
-                distance = 0.2, closest_only = false,
-            })
-            on_ground = false
-            local current_ground_normal = vec2(0, 1)
-            local current_ground_friction = 0.1
-            for i = 1, #hits do
-                local visited = {}
-                local found = {}
-                local function scan_connected(obj)
-                    if obj == nil or visited[obj.id] then return end
-                    visited[obj.id] = true
-                    table.insert(found, obj)
-                    local connected_objs = obj:get_direct_connected()
-                    for _, next_obj in ipairs(connected_objs) do scan_connected(next_obj) end
-                end
-                scan_connected(hits[i].object)
-                local connected_to_self = false
-                for _, obj in ipairs(found) do
-                    if obj.id == body.id then
-                        connected_to_self = true
+        local center_offset = vec2(0, -0.2)
+        local left_offset = vec2(-0.2, -0.2)
+        local right_offset = vec2(0.2, -0.2)
+        local ray_offsets = {center_offset, left_offset, right_offset}
+        
+        on_ground = false
+        local current_ground_normal = vec2(0, 1)
+        local current_ground_friction = 0.1
+        
+        -- Check each ray position
+        for _, offset in ipairs(ray_offsets) do
+            local ground_check_origin = body:get_world_point(offset)
+            if ground_check_origin then
+                local hits = Scene:raycast({
+                    origin = ground_check_origin, direction = down(),
+                    distance = 0.2, closest_only = false,
+                })
+                
+                for i = 1, #hits do
+                    local visited = {}
+                    local found = {}
+                    local function scan_connected(obj)
+                        if obj == nil or visited[obj.id] then return end
+                        visited[obj.id] = true
+                        table.insert(found, obj)
+                        local connected_objs = obj:get_direct_connected()
+                        for _, next_obj in ipairs(connected_objs) do scan_connected(next_obj) end
+                    end
+                    scan_connected(hits[i].object)
+                    
+                    local connected_to_self = false
+                    for _, obj in ipairs(found) do
+                        if obj.id == body.id then
+                            connected_to_self = true
+                            break
+                        end
+                    end
+                    
+                    if not connected_to_self then
+                        on_ground = true
+                        current_ground_normal = hits[i].normal
+                        current_ground_friction = hits[i].object:get_friction()
+                        if jump_end_timer <= 0 then jumping = false end
                         break
                     end
                 end
-                if not connected_to_self then
-                    on_ground = true
-                    current_ground_normal = hits[i].normal
-                    current_ground_friction = hits[i].object:get_friction()
-                    if jump_end_timer <= 0 then jumping = false end
-                    break
-                end
+                
+                -- If we found ground with this ray, no need to check others
+                if on_ground then break end
             end
+        end
+        
+        -- If no ground found across any rays
+        if not on_ground then
+            jumping = true
+            ground_surface_normal = up()
+            ground_friction = 0.1
+        else
             ground_surface_normal = current_ground_normal
             ground_friction = current_ground_friction
-        else
-            on_ground = false
-            jumping = true
-            ground_surface_normal = vec2(0, 1)
-            ground_friction = 0.1
         end
-        jump_end_timer = math.max(0, jump_end_timer - dt)
     end
 
     local function update_recoil()
@@ -451,30 +509,6 @@ function on_step(dt)
             local desired_right_leg_speed = calculate_motor_speed_for_leg_angle(current_right_leg_angle, target_right_leg_angle, LEG_ANGLE_CONTROL_KP, MAX_MOTOR_SPEED_FOR_LEG_CONTROL)
             set_leg_hinge_motor(left_hinge, desired_left_leg_speed, target_leg_torque)
             set_leg_hinge_motor(right_hinge, desired_right_leg_speed, target_leg_torque)
-        end
-    end
-
-    local function apply_forces()
-        local nudge_direction = calculate_nudge_direction()
-
-        body:apply_force_to_center(ground_surface_normal * 10)
-        if left_foot then
-            local fp_world = left_foot:get_world_point(vec2(0, -0.2))
-            if fp_world then left_foot:apply_force(ground_surface_normal * -5, fp_world) end
-        end
-        if right_foot then
-            local fp_world = right_foot:get_world_point(vec2(0, -0.2))
-            if fp_world then right_foot:apply_force(ground_surface_normal * -5, fp_world) end
-        end
-
-        if math.abs(nudge_direction) > 0 then -- If keys are pressed
-            body:apply_linear_impulse_to_center(vec2(nudge_direction * NUDGE_IMPULSE, 0))
-        else -- If no keys are pressed, apply horizontal damping
-            local current_velocity = body:get_linear_velocity()
-            if current_velocity then
-                local damping_impulse_x = -HORIZONTAL_DAMPING_FACTOR * ground_friction * current_velocity.x
-                body:apply_linear_impulse_to_center(vec2(damping_impulse_x, 0))
-            end
         end
     end
 
@@ -630,7 +664,111 @@ function on_step(dt)
         end
     end
 
-    local debug = true--player:key_pressed("T")
+    local function calculate_horizontal_velocity(movement_params, current_horizontal_velocity, is_moving)
+        -- Formula for key pressed is (n-x)^2/t, where n is the max speed, x is the current speed, and t is the acceleration time
+        -- Formula for key released is x * d, where d is the damping base
+        local sign = current_horizontal_velocity < 0 and -1 or 1
+        local x = math.abs(current_horizontal_velocity) -- Will be undone on return
+        local calculated_velocity = x
+        if is_moving and x <= movement_params.max_speed then
+            calculated_velocity = x + ((movement_params.max_speed - x) ^ 2) / movement_params.acceleration_time
+        else
+            calculated_velocity = x * movement_params.damping_base
+        end
+        return calculated_velocity * sign
+    end
+
+    local function calculate_force(current_horizontal_velocity, target_velocity)
+        -- Calculate the force needed to reach the target velocity
+        local acceleration = (target_velocity - current_horizontal_velocity) / dt
+        print(acceleration)
+        local force = acceleration * get_self_mass()
+        return force
+    end
+
+    local function straighten()
+        local time = 1
+
+        local current_angle = body:get_angle() + math.pi/2
+        local target_angle = math.atan2(ground_surface_normal.y, ground_surface_normal.x)
+        local current_angular_velocity = body:get_angular_velocity()
+        local angular_velocity_rotation = current_angular_velocity * time
+        local angle_diff = target_angle - current_angle + angular_velocity_rotation
+        local angle_diff_clamped = math.atan2(math.sin(angle_diff), math.cos(angle_diff))
+        local straightening_force = math.abs(angle_diff_clamped*10)
+        body:apply_force_to_center(ground_surface_normal * straightening_force)
+        if left_foot then
+            local fp_world = left_foot:get_world_point(vec2(0, -0.2))
+            if fp_world then left_foot:apply_force(ground_surface_normal * -straightening_force/2, fp_world) end
+        end
+        if right_foot then
+            local fp_world = right_foot:get_world_point(vec2(0, -0.2))
+            if fp_world then right_foot:apply_force(ground_surface_normal * -straightening_force/2, fp_world) end
+        end
+        body:apply_force_to_center(-reflect(get_gravity_force(), -ground_surface_normal))
+    end
+    
+    local function apply_horizontal_forces()
+        local nudge_direction = calculate_nudge_direction()
+        
+        local is_moving = (nudge_direction ~= 0)
+        local normal_angle = math.atan2(ground_surface_normal.y, ground_surface_normal.x)
+        local current_velocity = body:get_linear_velocity()
+        local tangent_velocity = uuhhhhhhh
+        local vel_x = current_velocity.x
+        local is_slowing_down = (vel_x * nudge_direction < 0) -- If trying to move in the opposite direction of current velocity
+        if is_slowing_down then
+            vel_x = vel_x * -0.01
+        end
+        local target_velocity = calculate_horizontal_velocity(movement_parameters, vel_x, is_moving)
+        local force = calculate_force(vel_x, target_velocity)
+        
+        -- Calculate the perpendicular vector to the ground normal (tangent to ground)
+        local ground_tangent = ground_surface_normal:rotate(-math.pi/2)
+        
+        -- Calculate horizontal component along the ground
+        local rotated_force = ground_tangent * force
+
+
+        body:apply_force_to_center(rotated_force)
+
+        -- -- Project current velocity onto the ground normal to get the vertical component
+        -- local vertical_velocity = ground_surface_normal * (dot(current_velocity, ground_surface_normal))
+        
+        -- -- Combine horizontal and vertical components
+        -- local new_velocity = horizontal_velocity + vertical_velocity
+        
+        -- body:set_linear_velocity(new_velocity)
+    end
+
+    local function apply_vertical_forces()
+        if just_jumped then
+            just_jumped = false
+            if body then
+                body:apply_linear_impulse_to_center(vec2(0, movement_parameters.jump_impulse))
+            end
+        end
+        if not player:key_pressed("W") then
+            jump_end_timer = 0 -- Cancel jump if W is released
+            jumping = false
+        end
+        if jump_end_timer > 0 then
+            if body then body:apply_force_to_center(vec2(0, movement_parameters.jump_hold_force)); end
+            jump_end_timer = math.max(0, jump_end_timer - dt)
+        end
+    end
+    
+    local function apply_angular_forces()
+        body:apply_torque(body:get_angular_velocity() * -0.1) -- Damping angular velocity
+    end
+
+    local function apply_forces()
+        apply_horizontal_forces()
+        apply_vertical_forces()
+        apply_angular_forces()
+    end
+
+    local debug = false--player:key_pressed("T")
 
     update_camera()
     check_ground()
@@ -639,6 +777,7 @@ function on_step(dt)
     if not debug then
         handle_locomotion(left_pivot_world, right_pivot_world)
     end
-    apply_forces()
     handle_arms(left_pivot_world, right_pivot_world)
+    straighten()
+    apply_forces()
 end

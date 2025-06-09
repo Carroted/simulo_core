@@ -1,5 +1,6 @@
 local player = require("core/lib/player.lua");
 Scene:reset();
+Scene:set_gravity(vec2(10,0)); -- gravity in m/s^2
 Scene:add_box({
     position = vec2(-5, -10),
     size = vec2(1, 1),

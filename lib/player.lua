@@ -84,6 +84,7 @@ local function player(tbl)
         radius = (0.07854984894 * size) + (realer * 0.35),
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
+        density = 0.1,
         friction = 0.2,
         restitution = 0,
     });
@@ -99,6 +100,7 @@ local function player(tbl)
         radius = 0.07854984894 * size,
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
+        density = 2,
         friction = 0,
         restitution = 0,
     });
@@ -133,6 +135,7 @@ local function player(tbl)
         radius = (0.07854984894 * size) + (realer * 0.35),
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
+        density = 0.1,
         friction = 0.2,
         restitution = 0,
     });
@@ -148,6 +151,7 @@ local function player(tbl)
         radius = 0.07854984894 * size,
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
+        density = 2,
         friction = 0,
         restitution = 0,
     });
@@ -194,6 +198,7 @@ local function player(tbl)
         radius = (realer * 0.4),
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
+        density = 0.1,
         friction = 0.2,
         restitution = 0,
     });
@@ -204,6 +209,7 @@ local function player(tbl)
         radius = (realer * 0.4),
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
+        density = 0.1,
         friction = 0.2,
         restitution = 0,
     });
@@ -242,6 +248,7 @@ local function player(tbl)
         body_type = BodyType.Dynamic,
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Head",
+        density = 0.1,
     });
 
     head_body:add_component({ hash = controller, saved_data = {
