@@ -33,25 +33,6 @@ local function reflect(v, normal)
     return vec2(v.x - 2 * dot_product * normal.x, v.y - 2 * dot_product * normal.y) * v_mag
 end
 
--- Physics functions
-local function get_self_mass()
-    if body and left_foot and right_foot and left_arm and right_arm and self then
-        return body:get_mass() + left_foot:get_mass() + right_foot:get_mass() +
-               left_arm:get_mass() + right_arm:get_mass() + self:get_mass()
-    else
-        return 1.0
-    end
-end
-local function get_gravity_force()
-    return Scene:get_gravity() * get_self_mass()
-end
-local function down()
-    return Scene:get_gravity():normalize()
-end
-local function up()
-    return -down()
-end
-
 -- Holding State Variables
 local holding = nil;
 local holding_point_left = nil;  -- Local point on object for LEFT arm when NOT flipped
@@ -79,16 +60,56 @@ local JUMP_TORQUE = 250.0;
 local IDLE_TORQUE = 5.0;
 local MAX_HOLD_DISTANCE = 0.4;
 
+-- Keymapping
+local keymap = {
+    jump = "W"; -- Jump
+    move_left = "A"; -- Move left
+    move_right = "D"; -- Move right
+    pick_up = "E"; -- Pick up object
+    drop = "Q"; -- Drop object
+    roll = "S"; -- Roll (left/right movement)
+}
+local input = {
+    jump = function() return player:key_just_pressed(keymap.jump) end, -- Only works in on_update()
+    hold_jump = function() return player:key_pressed(keymap.jump) end,
+    move_left = function() return player:key_pressed(keymap.move_left) end,
+    move_right = function() return player:key_pressed(keymap.move_right) end,
+    pick_up = function() return player:key_just_pressed(keymap.pick_up) end, -- Only works in on_update()
+    drop = function() return player:key_just_pressed(keymap.drop) end, -- Only works in on_update()
+    roll = function() return player:key_just_pressed(keymap.roll) end, -- Only works in on_update()
+}
+
 -- Movement arguments
 local movement_parameters = {
     acceleration_time = 10; -- Multiplies the time it takes to reach a given speed
+    air_acceleration_time = 20; -- Multiplies the time it takes to reach a given speed in air
     max_speed = 5; -- Asymptote of the velocity curve
     damping_base = 0.8; -- Velocity is multiplied by this every frame when button is released
-    jump_impulse = 3.0; -- Impulse applied when jumping
-    jump_hold_force = 3.0; -- Force applied while holding jump button
-    additional_gravity_force = 3.0; -- Additional force applied to body in the downward direction
+    air_damping_base = 0.9; -- Damping in air
+    jump_input_time = 0.5; -- How long the jump button can be held before it is ignored
+    jump_impulse = 1.0; -- Impulse applied when jumping
+    current_speed_factor = 0.1; -- How much to add to jump force based on current speed
+    max_jump_bounce = 0.25; -- Maximum impulse that can be added via bounce jumping
+    jump_hold_force = 25.0; -- Force applied while holding jump button
+    jump_time = 0.5; -- Time in seconds the jump button can be held for
+    coyote_time = 10.0; -- Time in seconds to allow jumping after leaving ground
+    bhop_max_speed_factor = 1.5; -- How much to multiply the max speed by when bhopping
+    bhop_speedup_factor = 0.75; -- Distance to bhop_max_speed_factor is multiplied by this every jump (higher = slower)
+    bhop_time = 0.2; -- How long bhop boost lasts after touching floor
+    backflip_speed = 20.0; -- Speed multiplier for backflip
+    landing_window = 0.2; -- Time window to do tricks after landing
+    roll_time = 2; -- How long the roll lasts
+    roll_speed_threshold = 0.5; -- Minimum speed to allow rolling
+    roll_max_speed_increase = 5; -- Maximum speed increase from rolling
 };
 
+-- Timers
+local coyote_timer = 0; -- Coyote time for jump forgiveness
+local bhop_timer = 0; -- Timer for bhop boost
+local jump_end_timer = 0; -- Timer for jump hold during the jump
+local jump_input_timer = 0; -- Timer for jump input hold before the jump
+local landing_timer = 0; -- Timer for right after touching ground
+local rolling_timer = 0; -- Timer for rolls
 
 -- Velocity History Tracking (for Drops)
 local max_history_frames = 10;
@@ -99,10 +120,12 @@ local holding_cumulative_time = 0;
 -- Ground State & Jumping
 local on_ground = false;
 local ground_friction = 0.1;
-local ground_surface_normal = up();
+local ground_surface_normal = vec2(0,0); -- Normal of the ground surface
+local ground_surface_velocity = vec2(0,0); -- For moving surfaces like cars
 local jumping = false;
 local just_jumped = false;
-local jump_end_timer = 0;
+local bhop_speedup = 1; -- Speed multiplier for bhop boost, cannot exceed bhop_max_speed_factor
+local roll_direction = 0; -- Direction of the roll, 1 for right, -1 for left, 0 for no roll
 
 -- Activation & Recoil State
 local FIRE_COOLDOWN_DURATION = 0.3;
@@ -115,7 +138,38 @@ local MIN_RECOIL_DISTANCE_CLAMP = 0.1;
 
 -- General State & Helpers
 local walk_cycle_time = 0;
+local spin_angle = 0; -- For spinning the player around
 local NO_COLLISION_LAYERS = {};
+
+-- Physics functions
+local function get_self_mass()
+    if body and left_foot and right_foot and left_arm and right_arm and self then
+        return body:get_mass() + left_foot:get_mass() + right_foot:get_mass() +
+               left_arm:get_mass() + right_arm:get_mass() + self:get_mass()
+    else
+        return 1.0
+    end
+end
+local function get_gravity_force()
+    return Scene:get_gravity() * get_self_mass()
+end
+local function down()
+    return Scene:get_gravity():normalize()
+end
+local function up()
+    return -down()
+end
+local function get_velocity_relative_to_ground()
+    if not body then return vec2(0, 0) end
+    local current_velocity = body:get_linear_velocity()
+    if not current_velocity then return vec2(0, 0) end
+    return current_velocity - ground_surface_velocity
+end
+local function rotate_vector_down(vector, ground_surface_normal)
+    local ground_angle = math.atan2(ground_surface_normal.y, ground_surface_normal.x) - math.pi/2
+    local rotated_vector = vector:rotate(-ground_angle)
+    return rotated_vector
+end
 
 -- Helper to clear holding history and reset cumulative time
 local function clear_holding_history()
@@ -317,18 +371,63 @@ local function drop_object()
     original_holding_bodytype = nil;
 end
 
+local function begin_spin()
+    local current_velocity = get_velocity_relative_to_ground()
+    local movement_direction = current_velocity.x < 0 and -1 or 1
+    spin_angle = math.pi/4 * -movement_direction
+end
+
 -- Update Function (Input polling)
 function on_update(dt)
+    local function roll()
+        rolling_timer = movement_parameters.roll_time;
+        local velocity = get_velocity_relative_to_ground();
+        if velocity.x > 0 then
+            roll_direction = 1; -- Roll right
+        elseif velocity.x < 0 then
+            roll_direction = -1; -- Roll left
+        else
+            roll_direction = 0; -- No roll direction
+        end
+        begin_spin()
+        print("roll")
+    end
+
+    local function is_roll_possible()
+        if landing_timer == 0 then
+            return false;
+        end
+        if rolling_timer > 0 then
+            return false; -- Already rolling
+        end
+        local velocity = get_velocity_relative_to_ground();
+        if math.abs(velocity.x) < movement_parameters.roll_speed_threshold then
+            return false; -- Not moving enough to roll
+        end
+        return true;
+    end
+
+    local function handle_roll()
+        if input.roll() and is_roll_possible() then
+            roll()
+        end
+    end
+
     local function handle_jump()
-        if player:key_just_pressed("W") and on_ground then
+        if input.jump() then
+            jump_input_timer = movement_parameters.jump_input_time;
+        end
+        if jump_input_timer > 0 and (on_ground or coyote_timer > 0) then
+            jump_input_timer = 0;
+            coyote_timer = 0; -- Reset coyote timer on jump
             jumping = true;
             just_jumped = true;
-            jump_end_timer = 0.5;
+            jump_end_timer = movement_parameters.jump_time;
         end
     end
 
     local function handle_pick_up()
-        if player:key_just_pressed("E") then
+        if input.pick_up() then
             if holding then
                 drop_object()
             end
@@ -343,7 +442,7 @@ function on_update(dt)
     end
 
     local function handle_drop()
-        if player:key_just_pressed("Q") then
+        if input.drop() then
             if holding then
                 drop_object()
             end
@@ -360,6 +459,7 @@ function on_update(dt)
     handle_pick_up()
     handle_drop()
     update_camera()
+    handle_roll()
 end
 
 -- Step Function (Physics and main logic)
@@ -373,6 +473,7 @@ function on_step(dt)
 
     local function update_camera()
         local target_cam_pos = body:get_position() + vec2(0, 0.6)
+        cam_pos = cam_pos + get_velocity_relative_to_ground() * dt
         cam_pos = lerp_vec2(cam_pos, target_cam_pos, dt * 4)
         player:set_camera_position(cam_pos)
     end
@@ -383,8 +484,9 @@ function on_step(dt)
         local right_offset = vec2(0.2, -0.2)
         local ray_offsets = {center_offset, left_offset, right_offset}
         
-        on_ground = false
+        local found_ground = false
         local current_ground_normal = vec2(0, 1)
+        local current_ground_velocity = vec2(0, 0)
         local current_ground_friction = 0.1
         
         -- Check each ray position
@@ -410,33 +512,43 @@ function on_step(dt)
                     
                     local connected_to_self = false
                     for _, obj in ipairs(found) do
-                        if obj.id == body.id then
+                        if obj.id == body.id or obj.id == left_arm.id or obj.id == right_arm.id then
                             connected_to_self = true
                             break
                         end
                     end
                     
                     if not connected_to_self then
+                        found_ground = true
+                        if on_ground == false then
+                            landing_timer = movement_parameters.landing_window
+                        end
                         on_ground = true
                         current_ground_normal = hits[i].normal
+                        current_ground_velocity = hits[i].object:get_linear_velocity()
                         current_ground_friction = hits[i].object:get_friction()
-                        if jump_end_timer <= 0 then jumping = false end
+                        if jump_end_timer <= 0 then
+                            coyote_timer = movement_parameters.coyote_time
+                            jumping = false
+                        end
                         break
                     end
                 end
                 
                 -- If we found ground with this ray, no need to check others
-                if on_ground then break end
+                if found_ground then break end
             end
         end
         
         -- If no ground found across any rays
-        if not on_ground then
+        if not found_ground then
+            on_ground = false
             jumping = true
             ground_surface_normal = up()
             ground_friction = 0.1
         else
             ground_surface_normal = current_ground_normal
+            ground_surface_velocity = current_ground_velocity
             ground_friction = current_ground_friction
         end
     end
@@ -465,8 +577,11 @@ function on_step(dt)
     end
 
     local function calculate_nudge_direction()
-        local move_left = player:key_pressed("A");
-        local move_right = player:key_pressed("D");
+        if rolling_timer > 0 then
+            return roll_direction
+        end
+        local move_left = input.move_left();
+        local move_right = input.move_right();
         if move_left and not move_right then
             return -1;
         elseif move_right and not move_left then
@@ -477,8 +592,8 @@ function on_step(dt)
     end
 
     local function handle_locomotion(left_pivot_world, right_pivot_world)
-        local move_left = player:key_pressed("A")
-        local move_right = player:key_pressed("D")
+        local move_left = input.move_left();
+        local move_right = input.move_right();
         local target_left_leg_angle = NEUTRAL_ANGLE
         local target_right_leg_angle = NEUTRAL_ANGLE
         local target_leg_torque = IDLE_TORQUE
@@ -635,7 +750,7 @@ function on_step(dt)
             if jumping then
                 target_left_arm_rel_angle = target_left_arm_rel_angle + JUMP_TUCK_ARM_ANGLE_REL
                 target_right_arm_rel_angle = target_right_arm_rel_angle - JUMP_TUCK_ARM_ANGLE_REL
-            elseif player:key_pressed("A") or player:key_pressed("D") then
+            elseif input.move_left() or input.move_right() then
                 local body_vel = body:get_linear_velocity()
                 local horizontal_vel_mag = (body_vel and math.abs(body_vel.x)) or 0
                 local vel_scale = math.min(math.max(horizontal_vel_mag, 0.4), 1.0)
@@ -664,16 +779,59 @@ function on_step(dt)
         end
     end
 
-    local function calculate_horizontal_velocity(movement_params, current_horizontal_velocity, is_moving)
+    local function straighten()
+        local time = 1
+
+        local target_vector = ground_surface_normal
+        target_vector = target_vector:rotate(spin_angle)
+
+        local current_angle = body:get_angle() + math.pi/2
+        local target_angle = math.atan2(target_vector.y, target_vector.x)
+        local current_angular_velocity = body:get_angular_velocity()
+        local angular_velocity_rotation = current_angular_velocity * time
+        local angle_diff = target_angle - current_angle + angular_velocity_rotation
+        local angle_diff_clamped = math.atan2(math.sin(angle_diff), math.cos(angle_diff))
+        local straightening_force = math.abs(angle_diff_clamped*(spin_angle == 0 and 10 or 20))
+
+        body:apply_force_to_center(target_vector * straightening_force)
+        if left_foot then
+            local fp_world = left_foot:get_world_point(vec2(0, -0.2))
+            if fp_world then left_foot:apply_force(target_vector * -straightening_force/2, fp_world) end
+        end
+        if right_foot then
+            local fp_world = right_foot:get_world_point(vec2(0, -0.2))
+            if fp_world then right_foot:apply_force(target_vector * -straightening_force/2, fp_world) end
+        end
+        body:apply_force_to_center(-reflect(get_gravity_force(), -target_vector))
+    end
+
+    local function calculate_next_bhop_speedup(bhop_speedup_factor, bhop_max_speed_factor, bhop_time, current_speedup) -- Called every jump
+        local new_speedup = bhop_max_speed_factor-((bhop_max_speed_factor-current_speedup)*bhop_speedup_factor)
+        return math.min((new_speedup), bhop_max_speed_factor)
+    end
+
+    local function bhop_jump_update()
+        if bhop_timer > 0 then
+            bhop_speedup = calculate_next_bhop_speedup(
+                movement_parameters.bhop_speedup_factor,
+                movement_parameters.bhop_max_speed_factor,
+                movement_parameters.bhop_time,
+                bhop_speedup
+            )
+        end
+        bhop_timer = movement_parameters.bhop_time
+    end
+    
+    local function calculate_horizontal_velocity(max_speed, acceleration_time, damping_base, current_horizontal_velocity, is_moving)
         -- Formula for key pressed is (n-x)^2/t, where n is the max speed, x is the current speed, and t is the acceleration time
         -- Formula for key released is x * d, where d is the damping base
         local sign = current_horizontal_velocity < 0 and -1 or 1
         local x = math.abs(current_horizontal_velocity) -- Will be undone on return
         local calculated_velocity = x
-        if is_moving and x <= movement_params.max_speed then
-            calculated_velocity = x + ((movement_params.max_speed - x) ^ 2) / movement_params.acceleration_time
+        if is_moving and x <= max_speed then
+            calculated_velocity = x + ((max_speed - x) ^ 2) / acceleration_time
         else
-            calculated_velocity = x * movement_params.damping_base
+            calculated_velocity = x * damping_base
         end
         return calculated_velocity * sign
     end
@@ -681,94 +839,159 @@ function on_step(dt)
     local function calculate_force(current_horizontal_velocity, target_velocity)
         -- Calculate the force needed to reach the target velocity
         local acceleration = (target_velocity - current_horizontal_velocity) / dt
-        print(acceleration)
         local force = acceleration * get_self_mass()
         return force
     end
 
-    local function straighten()
-        local time = 1
-
-        local current_angle = body:get_angle() + math.pi/2
-        local target_angle = math.atan2(ground_surface_normal.y, ground_surface_normal.x)
-        local current_angular_velocity = body:get_angular_velocity()
-        local angular_velocity_rotation = current_angular_velocity * time
-        local angle_diff = target_angle - current_angle + angular_velocity_rotation
-        local angle_diff_clamped = math.atan2(math.sin(angle_diff), math.cos(angle_diff))
-        local straightening_force = math.abs(angle_diff_clamped*10)
-        body:apply_force_to_center(ground_surface_normal * straightening_force)
-        if left_foot then
-            local fp_world = left_foot:get_world_point(vec2(0, -0.2))
-            if fp_world then left_foot:apply_force(ground_surface_normal * -straightening_force/2, fp_world) end
-        end
-        if right_foot then
-            local fp_world = right_foot:get_world_point(vec2(0, -0.2))
-            if fp_world then right_foot:apply_force(ground_surface_normal * -straightening_force/2, fp_world) end
-        end
-        body:apply_force_to_center(-reflect(get_gravity_force(), -ground_surface_normal))
-    end
-    
     local function apply_horizontal_forces()
         local nudge_direction = calculate_nudge_direction()
         
+        -- Calculate the perpendicular vector to the ground normal (tangent to ground)
+        local ground_tangent = ground_surface_normal:rotate(-math.pi/2)
+
+        local tangent_velocity = rotate_vector_down(get_velocity_relative_to_ground(), ground_surface_normal)
+        
         local is_moving = (nudge_direction ~= 0)
-        local normal_angle = math.atan2(ground_surface_normal.y, ground_surface_normal.x)
-        local current_velocity = body:get_linear_velocity()
-        local tangent_velocity = uuhhhhhhh
-        local vel_x = current_velocity.x
-        local is_slowing_down = (vel_x * nudge_direction < 0) -- If trying to move in the opposite direction of current velocity
+        local vel_x = tangent_velocity.x
+        local is_slowing_down = (vel_x * nudge_direction < 0) and not (rolling_timer > 0) -- If trying to move in the opposite direction of current velocity
         if is_slowing_down then
             vel_x = vel_x * -0.01
         end
-        local target_velocity = calculate_horizontal_velocity(movement_parameters, vel_x, is_moving)
+        local target_velocity = calculate_horizontal_velocity(
+            movement_parameters.max_speed * bhop_speedup + (rolling_timer > 0 and movement_parameters.roll_max_speed_increase or 0),
+            on_ground and movement_parameters.acceleration_time or movement_parameters.air_acceleration_time,
+            on_ground and movement_parameters.damping_base or movement_parameters.air_damping_base,
+            vel_x,
+            is_moving
+        )
         local force = calculate_force(vel_x, target_velocity)
-        
-        -- Calculate the perpendicular vector to the ground normal (tangent to ground)
-        local ground_tangent = ground_surface_normal:rotate(-math.pi/2)
         
         -- Calculate horizontal component along the ground
         local rotated_force = ground_tangent * force
 
-
         body:apply_force_to_center(rotated_force)
+    end
 
-        -- -- Project current velocity onto the ground normal to get the vertical component
-        -- local vertical_velocity = ground_surface_normal * (dot(current_velocity, ground_surface_normal))
+    local function jump(multiplier)
+        just_jumped = false
+        if body then
+            local relative_velocity = rotate_vector_down(get_velocity_relative_to_ground(), ground_surface_normal)
+
+            -- Current velocity cancellation
+            local impulse_to_cancel_vertical_speed
+            if relative_velocity.y < 0 then
+                impulse_to_cancel_vertical_speed = math.abs(relative_velocity.y) * get_self_mass()
+            else
+                impulse_to_cancel_vertical_speed = math.min(math.abs(relative_velocity.y) * get_self_mass(), movement_parameters.max_jump_bounce)
+                -- Visually show boost
+                -- if impulse_to_cancel_vertical_speed == movement_parameters.max_jump_bounce then
+                --     print("nice!")
+                --     begin_spin()
+                -- end
+            end
+
+            -- Speed bonus to reward running jumps
+            local current_speed_bonus = math.abs(relative_velocity.x) * movement_parameters.current_speed_factor
+            
+
+            body:apply_linear_impulse_to_center(up() * (movement_parameters.jump_impulse * multiplier + current_speed_bonus + impulse_to_cancel_vertical_speed))
+        end
+        bhop_jump_update()
         
-        -- -- Combine horizontal and vertical components
-        -- local new_velocity = horizontal_velocity + vertical_velocity
-        
-        -- body:set_linear_velocity(new_velocity)
     end
 
     local function apply_vertical_forces()
         if just_jumped then
-            just_jumped = false
-            if body then
-                body:apply_linear_impulse_to_center(vec2(0, movement_parameters.jump_impulse))
-            end
-        end
-        if not player:key_pressed("W") then
-            jump_end_timer = 0 -- Cancel jump if W is released
-            jumping = false
+            jump(1)
         end
         if jump_end_timer > 0 then
-            if body then body:apply_force_to_center(vec2(0, movement_parameters.jump_hold_force)); end
-            jump_end_timer = math.max(0, jump_end_timer - dt)
+            if not input.hold_jump() then
+                jump_end_timer = 0 -- Cancel jump if W is released
+                if body then body:apply_linear_impulse_to_center(down() * movement_parameters.jump_impulse * 0.5); end
+            end
+            if body then body:apply_force_to_center(up() * movement_parameters.jump_hold_force * (jump_end_timer/movement_parameters.jump_time)^4); end
         end
     end
     
-    local function apply_angular_forces()
-        body:apply_torque(body:get_angular_velocity() * -0.1) -- Damping angular velocity
+    local function apply_angular_damping()
+        body:apply_torque(body:get_angular_velocity() * -0.5) -- Damping angular velocity
     end
 
     local function apply_forces()
         apply_horizontal_forces()
         apply_vertical_forces()
-        apply_angular_forces()
+        apply_angular_damping()
     end
 
-    local debug = false--player:key_pressed("T")
+    local function update_jump_end_timer(dt)
+        if jump_end_timer > 0 then
+            jump_end_timer = math.max(0, jump_end_timer - dt)
+        end
+    end
+
+    local function update_jump_input_timer(dt)
+        if not input.hold_jump() then
+            jump_input_timer = 0 -- Reset timer if W is released
+        end
+        if jump_input_timer > 0 then
+            jump_input_timer = math.max(0, jump_input_timer - dt)
+        end
+    end
+
+    local function update_coyote_timer(dt)
+        if coyote_timer > 0 then
+            coyote_timer = math.max(0, coyote_timer - dt)
+        end
+    end
+
+    local function update_bhop_timer(dt)
+        if bhop_timer > 0 and on_ground then
+            bhop_timer = math.max(0, bhop_timer - dt)
+            if bhop_timer <= 0 then
+                bhop_speedup = 1 -- Reset speedup when timer ends
+            end
+        end
+    end
+
+    local function update_landing_timer(dt)
+        if landing_timer > 0 then
+            landing_timer = math.max(0, landing_timer - dt)
+        end
+    end
+
+    local function update_rolling_timer(dt)
+        if rolling_timer > 0 then
+            rolling_timer = math.max(0, rolling_timer - dt)
+            if spin_angle == 0 then
+                begin_spin()
+            end
+            if rolling_timer <= 0 then
+                spin_angle = 0 -- Reset spin angle after roll ends
+            end
+        end
+    end
+
+    local function update_spin_angle(dt)
+        if math.abs(spin_angle) > 0 then
+            local sign = spin_angle < 0 and -1 or 1
+            spin_angle = spin_angle + (dt * movement_parameters.backflip_speed * sign)
+        end
+        if math.abs(spin_angle) > math.pi*2 then
+            spin_angle = 0 -- Reset spin angle after a full rotation
+        end
+    end
+
+    local function update_timers(dt)
+        update_jump_end_timer(dt)
+        update_jump_input_timer(dt)
+        update_coyote_timer(dt)
+        update_bhop_timer(dt)
+        update_landing_timer(dt)
+        update_rolling_timer(dt)
+        update_spin_angle(dt)
+    end
+
+    local debug = false
 
     update_camera()
     check_ground()
@@ -780,4 +1003,8 @@ function on_step(dt)
     handle_arms(left_pivot_world, right_pivot_world)
     straighten()
     apply_forces()
+    update_timers(dt)
+    if player:key_pressed("B") then
+        begin_spin()
+    end
 end
