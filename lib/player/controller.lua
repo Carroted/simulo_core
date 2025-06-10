@@ -843,7 +843,7 @@ function on_step(dt)
         return force
     end
 
-    local function apply_horizontal_forces()
+    local function get_horizontal_forces()
         local nudge_direction = calculate_nudge_direction()
         
         -- Calculate the perpendicular vector to the ground normal (tangent to ground)
@@ -869,11 +869,12 @@ function on_step(dt)
         -- Calculate horizontal component along the ground
         local rotated_force = ground_tangent * force
 
-        body:apply_force_to_center(rotated_force)
+        return rotated_force
     end
 
-    local function jump(multiplier)
+    local function get_jump_force(multiplier)
         just_jumped = false
+        bhop_jump_update()
         if body then
             local relative_velocity = rotate_vector_down(get_velocity_relative_to_ground(), ground_surface_normal)
 
@@ -894,33 +895,51 @@ function on_step(dt)
             local current_speed_bonus = math.abs(relative_velocity.x) * movement_parameters.current_speed_factor
             
 
-            body:apply_linear_impulse_to_center(up() * (movement_parameters.jump_impulse * multiplier + current_speed_bonus + impulse_to_cancel_vertical_speed))
+            local force = up() * (movement_parameters.jump_impulse * multiplier + current_speed_bonus + impulse_to_cancel_vertical_speed)
+            local impulse = force / dt
+            return impulse
         end
-        bhop_jump_update()
-        
+        return vec2(0, 0) -- No impulse if body is not defined
     end
 
-    local function apply_vertical_forces()
+    local function get_vertical_forces()
         if just_jumped then
-            jump(1)
+            return get_jump_force(1)
         end
         if jump_end_timer > 0 then
             if not input.hold_jump() then
                 jump_end_timer = 0 -- Cancel jump if W is released
-                if body then body:apply_linear_impulse_to_center(down() * movement_parameters.jump_impulse * 0.5); end
+                if body then
+                    local force = down() * movement_parameters.jump_impulse * 0.5;
+                    local impulse = force / dt;
+                    return impulse;
+                end
             end
-            if body then body:apply_force_to_center(up() * movement_parameters.jump_hold_force * (jump_end_timer/movement_parameters.jump_time)^4); end
+            if body then
+                return up() * movement_parameters.jump_hold_force * (jump_end_timer/movement_parameters.jump_time)^4;
+            end
         end
+        return vec2(0, 0)
     end
     
-    local function apply_angular_damping()
-        body:apply_torque(body:get_angular_velocity() * -0.5) -- Damping angular velocity
+    local function apply_all_forces(force, angular_force)
+        body:apply_force_to_center(force);
+        body:apply_torque(angular_force);
     end
 
-    local function apply_forces()
-        apply_horizontal_forces()
-        apply_vertical_forces()
-        apply_angular_damping()
+    local function get_angular_forces()
+        return body:get_angular_velocity() * -0.5 -- Damping angular velocity
+    end
+
+    local function get_all_forces()
+        local force = vec2(0, 0)
+        force = force + get_horizontal_forces()
+        force = force + get_vertical_forces()
+
+        local angular_force = 0
+        angular_force = angular_force + get_angular_forces()
+
+        return force, angular_force
     end
 
     local function update_jump_end_timer(dt)
@@ -1002,7 +1021,7 @@ function on_step(dt)
     end
     handle_arms(left_pivot_world, right_pivot_world)
     straighten()
-    apply_forces()
+    apply_all_forces(get_all_forces())
     update_timers(dt)
     if player:key_pressed("B") then
         begin_spin()
