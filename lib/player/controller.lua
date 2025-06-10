@@ -92,14 +92,14 @@ local movement_parameters = {
     max_jump_bounce = 0.25; -- Maximum impulse that can be added via bounce jumping
     jump_hold_force = 25.0; -- Force applied while holding jump button
     jump_time = 0.5; -- Time in seconds the jump button can be held for
-    coyote_time = 10.0; -- Time in seconds to allow jumping after leaving ground
+    coyote_time = 0.2; -- Time in seconds to allow jumping after leaving ground
     bhop_max_speed_factor = 1.5; -- How much to multiply the max speed by when bhopping
     bhop_speedup_factor = 0.75; -- Distance to bhop_max_speed_factor is multiplied by this every jump (higher = slower)
     bhop_time = 0.2; -- How long bhop boost lasts after touching floor
     backflip_speed = 20.0; -- Speed multiplier for backflip
     landing_window = 0.2; -- Time window to do tricks after landing
-    roll_time = 2; -- How long the roll lasts
-    roll_speed_threshold = 0.5; -- Minimum speed to allow rolling
+    roll_time = 0.5; -- How long the roll lasts
+    roll_speed_threshold = 2; -- Minimum speed to allow rolling
     roll_max_speed_increase = 5; -- Maximum speed increase from rolling
 };
 
