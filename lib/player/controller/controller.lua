@@ -934,8 +934,6 @@ end
 Movement.straighten = function(self, body_parts)
     local time = 1
     local body = body_parts.body
-    local left_foot = body_parts.left_foot
-    local right_foot = body_parts.right_foot
 
     local target_vector = self.Ground.state.ground_surface_normal
     target_vector = target_vector:rotate(self.state.spin_angle)
@@ -946,18 +944,13 @@ Movement.straighten = function(self, body_parts)
     local angular_velocity_rotation = current_angular_velocity * time
     local angle_diff = target_angle - current_angle + angular_velocity_rotation
     local angle_diff_clamped = math.atan2(math.sin(angle_diff), math.cos(angle_diff))
-    local straightening_force = math.abs(angle_diff_clamped*(self.state.spin_angle == 0 and 10 or 20))
+    local straightening_force_magnitude = math.abs(angle_diff_clamped*(self.state.spin_angle == 0 and 10 or 20))
 
-    body:apply_force_to_center(target_vector * straightening_force)
-    if left_foot then
-        local fp_world = left_foot:get_world_point(vec2(0, -0.2))
-        if fp_world then left_foot:apply_force(target_vector * -straightening_force/2, fp_world) end
-    end
-    if right_foot then
-        local fp_world = right_foot:get_world_point(vec2(0, -0.2))
-        if fp_world then right_foot:apply_force(target_vector * -straightening_force/2, fp_world) end
-    end
-    body:apply_force_to_center(-Utils.reflect(Physics:get_gravity_force(), -target_vector))
+    local straightening_force = target_vector * straightening_force_magnitude
+
+    local gravity_countering_force = -Utils.reflect(Physics:get_gravity_force(), -target_vector)
+
+    return straightening_force, gravity_countering_force
 end
 
 Movement.calculate_next_bhop_speedup = function(self, bhop_speedup_factor, bhop_max_speed_factor, bhop_time, current_speedup) -- Called every jump
@@ -1074,9 +1067,26 @@ Physics.get_vertical_forces = function(self, dt, movement_parameters)
     return vec2(0, 0)
 end
 
-Movement.apply_all_forces = function(self, body, force, angular_force)
+Body.apply_all_forces = function(self, force, angular_force, straightening_force)
+    local body = self.parts.body
+    if body == nil then
+        print("Error: Body component not found.")
+        return
+    end
     body:apply_force_to_center(force);
     body:apply_torque(angular_force);
+    body:apply_force_to_center(straightening_force)
+
+    local left_foot = self.parts.left_foot
+    local right_foot = self.parts.right_foot
+    if left_foot then
+        local fp_world = left_foot:get_world_point(vec2(0, -0.2))
+        if fp_world then left_foot:apply_force(-straightening_force/2, fp_world) end
+    end
+    if right_foot then
+        local fp_world = right_foot:get_world_point(vec2(0, -0.2))
+        if fp_world then right_foot:apply_force(-straightening_force/2, fp_world) end
+    end
 end
 
 Physics.get_angular_forces = function(self)
@@ -1087,11 +1097,13 @@ Physics.get_all_forces = function(self, dt)
     local force = vec2(0, 0)
     force = force + self:get_horizontal_forces(dt, Movement.params)
     force = force + self:get_vertical_forces(dt, Movement.params)
+    local straightening_force, gravity_countering_force = Movement:straighten(Body.parts)
+    force = force + gravity_countering_force -- straightening_force is applied separately
 
     local angular_force = 0
     angular_force = angular_force + self:get_angular_forces()
 
-    return force, angular_force
+    return force, angular_force, straightening_force
 end
 
 Controller.update_timers = function(self, dt)
@@ -1188,8 +1200,6 @@ function Controller.on_step(self, dt)
 
     local left_pivot_world, right_pivot_world = Body:calculate_arm_pivots(Animation.Arms.pivots.left_arm_pivot, Animation.Arms.pivots.right_arm_pivot)
 
-
-
     -- Main update loop begins
     local debug = false
 
@@ -1207,12 +1217,9 @@ function Controller.on_step(self, dt)
     -- Handle arm positioning and holding objects
     Animation.Arms:handle(left_pivot_world, right_pivot_world, Body.parts, Movement.state.jumping, Animation.Legs.State.walk_cycle_time, dt, Input.get)
     
-    -- Apply character straightening forces
-    Movement:straighten(Body.parts)
-    
     -- Calculate and apply physics forces
-    local force, angular_force = Physics:get_all_forces(dt)
-    Movement:apply_all_forces(Body.parts.body, force, angular_force)
+    local force, angular_force, straightening_force = Physics:get_all_forces(dt)
+    Body:apply_all_forces(force, angular_force, straightening_force)
     
     -- Update all timers
     self:update_timers(dt)
