@@ -36,7 +36,7 @@ local controller = Scene:add_component_def({
     id = "core/components/player_controller",
     name = "Player Controller",
     version = "0.1.0",
-    code = require('core/lib/player/controller.lua', 'string'),
+    code = require('core/lib/player/controller/controller.lua', 'string'),
 });
 
 local function player(tbl)
@@ -84,6 +84,7 @@ local function player(tbl)
         radius = (0.07854984894 * size) + (realer * 0.35),
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
+        density = 0.1,
         friction = 0.2,
         restitution = 0,
     });
@@ -99,7 +100,8 @@ local function player(tbl)
         radius = 0.07854984894 * size,
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
-        friction = 0.2,
+        density = 2,
+        friction = 0,
         restitution = 0,
     });
 
@@ -133,6 +135,7 @@ local function player(tbl)
         radius = (0.07854984894 * size) + (realer * 0.35),
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
+        density = 0.1,
         friction = 0.2,
         restitution = 0,
     });
@@ -148,7 +151,8 @@ local function player(tbl)
         radius = 0.07854984894 * size,
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
-        friction = 0.2,
+        density = 2,
+        friction = 0,
         restitution = 0,
     });
 
@@ -194,6 +198,7 @@ local function player(tbl)
         radius = (realer * 0.4),
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
+        density = 0.1,
         friction = 0.2,
         restitution = 0,
     });
@@ -204,6 +209,7 @@ local function player(tbl)
         radius = (realer * 0.4),
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Body Part 2",
+        density = 0.1,
         friction = 0.2,
         restitution = 0,
     });
@@ -242,6 +248,7 @@ local function player(tbl)
         body_type = BodyType.Dynamic,
         color = color or Color:rgb(0.0, 1.0, 0.0),
         name = "Simulon Head",
+        density = 0.1,
     });
 
     head_body:add_component({ hash = controller, saved_data = {
@@ -254,6 +261,7 @@ local function player(tbl)
         right_hinge_arm = right_hinge_arm,
         left_arm = left_arm,
         right_arm = right_arm,
+        head = head_body,
         left_arm_pivot = simulon_box:get_local_point(left_arm:get_world_point(vec2(realer * 1.3 * 0.1, 0))),
         right_arm_pivot = simulon_box:get_local_point(right_arm:get_world_point(vec2(-realer * 1.3 * 0.1, 0))),
     } });
@@ -330,7 +338,7 @@ local function player(tbl)
         local_anchor_b = vec2(0, (0.8 * size) - ((0.7 / 2.0) * size)),
         length = 0.005,
         stiffness = 100.0 * size,
-        damping = 0.0,
+        damping = 0.5,
         attachment = atch,
     });
 
