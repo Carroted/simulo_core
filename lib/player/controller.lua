@@ -406,11 +406,13 @@ end
 Physics.get_gravity = function(self)
     return Scene:get_gravity() or vec2(0, -9.81) -- Default to Earth gravity if not set
 end
-Physics.on_start = function(self, bodyparts)
+Physics.on_start = function(self, bodyparts, movement_parameters)
     if not bodyparts or not bodyparts.body then
         print("Physics Error: Body parts not initialized correctly. at Physics.on_start")
         return
     end
+
+    self.movement_parameters = movement_parameters or Movement.params
 
     -- -- Set up the physics properties for the body parts
     -- for _, part in pairs(bodyparts) do
@@ -655,7 +657,7 @@ Controller.on_start = function(self, saved_data)
     Body:on_start(saved_data)
     Animation:on_start(saved_data)
     Camera:on_start(Body.parts.body)
-    Physics:on_start(Body.parts)
+    Physics:on_start(Body.parts, Movement.params)
 end
 
 -- Save Function
@@ -1228,7 +1230,6 @@ function Controller.check_required_parts(self)
     return true
 end
 function Controller.on_step(self, dt)
-
     if not self:check_required_parts() then
         return
     end
