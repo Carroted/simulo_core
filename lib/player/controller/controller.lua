@@ -17,9 +17,9 @@ local Animation = { -- Handles all animations and player holding logic.
     Legs = {}, -- Handles leg animations and movement.
     Arms = {}, -- Handles arm animations and holding logic.
     Recoil = {}, -- Handles recoil effects when firing weapons.
-    Holding = { -- Handles picking up and dropping objects.
-        History = {}, -- Keeps track of holding history for dropped objects.
-    },
+}
+local Holding = { -- Handles picking up and dropping objects.
+    History = {}, -- Keeps track of holding history for dropped objects.
 }
 local Movement = { -- Applies player force changes and contains logic for special moves.
     Ground = {}, -- Handles ground-related logic like friction and surface normals.
@@ -114,26 +114,26 @@ Animation.Recoil.state = {
 Animation.Recoil.timers = {
     fire_cooldown_timer = 0;
 }
-Animation.Holding.state = {
+Holding.state = {
     holding = nil;
     holding_point_left = nil;  -- Local point on object for LEFT arm when NOT flipped
     holding_point_right = nil; -- Local point on object for RIGHT arm when NOT flipped
     original_holding_layers = nil;
     original_holding_bodytype = nil;
 }
-Animation.Holding.History.state = {
+Holding.History.state = {
     max_history_frames = 10;
     holding_history_buffer = {};
     history_index = 0;
     holding_cumulative_time = 0;
 }
 -- Helper to clear holding history and reset cumulative time
-Animation.Holding.History.clear_holding_history = function(self)
+Holding.History.clear_holding_history = function(self)
     self.state.holding_history_buffer = {}
     self.state.history_index = 0
     self.state.holding_cumulative_time = 0
 end
-Animation.Holding.pick_up = function(self, object_to_hold, local_left_hold_point, local_right_hold_point)
+Holding.pick_up = function(self, object_to_hold, local_left_hold_point, local_right_hold_point)
     if self.state.holding or not object_to_hold then
         return
     end
@@ -152,9 +152,9 @@ Animation.Holding.pick_up = function(self, object_to_hold, local_left_hold_point
     self.state.holding:set_body_type(BodyType.Static);
     self.state.holding:set_collision_layers({}); -- No collision
 
-    self:clear_holding_history();
+    self.History:clear_holding_history();
 end
-Animation.Holding.drop_object = function(self)
+Holding.drop_object = function(self)
     local dropped_object = self.state.holding
     if not dropped_object then
         return
@@ -183,7 +183,7 @@ Animation.Holding.drop_object = function(self)
     self.state.original_holding_layers = nil;
     self.state.original_holding_bodytype = nil;
 end
-Animation.Holding.History.drop_object = function(self, dropped_object)
+Holding.History.drop_object = function(self, dropped_object)
     local linear_velocity = vec2(0, 0)
     local angular_velocity = 0
     local current_buffer_size = #self.state.holding_history_buffer
@@ -568,18 +568,18 @@ Animation.Legs.on_save = function(self)
     }
 end
 
-Animation.Holding.History.on_start = function(self, saved_data)
+Holding.History.on_start = function(self, saved_data)
     self:clear_holding_history()
     self.state.holding_cumulative_time = saved_data.holding_cumulative_time or 0
 end
 
-Animation.Holding.History.on_save = function(self)
+Holding.History.on_save = function(self)
     return {
         holding_cumulative_time = self.state.holding_cumulative_time
     }
 end
 
-Animation.Holding.on_start = function(self, saved_data)
+Holding.on_start = function(self, saved_data)
     self.state.holding = saved_data.holding
     self.state.holding_point_left = saved_data.holding_point_left
     self.state.holding_point_right = saved_data.holding_point_right
@@ -597,7 +597,7 @@ Animation.Holding.on_start = function(self, saved_data)
     end
 end
 
-Animation.Holding.on_save = function(self)
+Holding.on_save = function(self)
     local history_data = self.History:on_save()
     return {
         holding = self.state.holding,
@@ -622,20 +622,17 @@ end
 Animation.on_start = function(self, saved_data)
     self.Arms:on_start(saved_data)
     self.Legs:on_start(saved_data)
-    self.Holding:on_start(saved_data)
     self.Recoil:on_start() -- No saved data needed for recoil
 end
 
 Animation.on_save = function(self)
     local arms_data = self.Arms:on_save()
     local legs_data = self.Legs:on_save()
-    local holding_data = self.Holding:on_save()
     
     -- Merge the tables
     local result = {}
     for k, v in pairs(arms_data) do result[k] = v end
     for k, v in pairs(legs_data) do result[k] = v end
-    for k, v in pairs(holding_data) do result[k] = v end
     
     return result
 end
@@ -648,6 +645,7 @@ end
 Controller.on_start = function(self, saved_data)
     Body:on_start(saved_data)
     Animation:on_start(saved_data)
+    Holding:on_start(saved_data)
     Camera:on_start(Body, player)
     Physics:on_start(Body.parts, Movement.params)
     Input:on_start(player)
@@ -661,11 +659,13 @@ end
 Controller.on_save = function(self)
     local body_data = Body:on_save()
     local animation_data = Animation:on_save()
+    local holding_data = Holding:on_save()
     
     -- Merge the data tables
     local result = {}
     for k, v in pairs(body_data) do result[k] = v end
     for k, v in pairs(animation_data) do result[k] = v end
+    for k, v in pairs(holding_data) do result[k] = v end
     
     return result
 end
@@ -735,7 +735,7 @@ Movement.handle_jump = function(self, jump_input)
     end
 end
 
-Animation.Holding.handle_pick_up = function(self, pick_up_input)
+Holding.handle_pick_up = function(self, pick_up_input)
     if pick_up_input then
         if self.state.holding then
             self:drop_object()
@@ -750,7 +750,7 @@ Animation.Holding.handle_pick_up = function(self, pick_up_input)
     end
 end
 
-Animation.Holding.handle_drop = function(self, drop_input)
+Holding.handle_drop = function(self, drop_input)
     if drop_input then
         if self.state.holding then
             self:drop_object()
@@ -766,8 +766,8 @@ end
 Controller.on_update = function(self, dt)
     Movement:handle_jump(Input.get.jump())
     Movement:handle_roll(Input.get.roll())
-    Animation.Holding:handle_pick_up(Input.get.pick_up())
-    Animation.Holding:handle_drop(Input.get.drop())
+    Holding:handle_pick_up(Input.get.pick_up())
+    Holding:handle_drop(Input.get.drop())
     Camera:update_camera()
 end
 
@@ -823,7 +823,7 @@ Animation.Legs.handle_locomotion = function(self, dt, is_jumping, input)
     end
 
     Animation.Arms.handle_holding = function(self, left_pivot_world, right_pivot_world, dt)
-        if not Animation.Holding.state.holding then
+        if not Holding.state.holding then
             return;
         end;
         -- Currently Holding an Object
@@ -865,14 +865,14 @@ Animation.Legs.handle_locomotion = function(self, dt, is_jumping, input)
         end
 
         -- Set the held object's final transform
-        Animation.Holding.state.holding:set_position(target_holding_pos);
-        Animation.Holding.state.holding:set_angle(target_holding_angle);
+        Holding.state.holding:set_position(target_holding_pos);
+        Holding.state.holding:set_angle(target_holding_angle);
 
         -- Update drop velocity history buffer
-        Animation.Holding.History.state.holding_cumulative_time = Animation.Holding.History.state.holding_cumulative_time + dt
-        Animation.Holding.History.state.history_index = (Animation.Holding.History.state.history_index % Animation.Holding.History.state.max_history_frames) + 1
-        Animation.Holding.History.state.holding_history_buffer[Animation.Holding.History.state.history_index] = {
-             pos = target_holding_pos, angle = target_holding_angle, time = Animation.Holding.History.state.holding_cumulative_time
+        Holding.History.state.holding_cumulative_time = Holding.History.state.holding_cumulative_time + dt
+        Holding.History.state.history_index = (Holding.History.state.history_index % Holding.History.state.max_history_frames) + 1
+        Holding.History.state.holding_history_buffer[Holding.History.state.history_index] = {
+             pos = target_holding_pos, angle = target_holding_angle, time = Holding.History.state.holding_cumulative_time
         }
 
         -- Position the static arms - **CRITICAL CHANGE HERE**
@@ -881,18 +881,18 @@ Animation.Legs.handle_locomotion = function(self, dt, is_jumping, input)
 
         -- Determine which local points on the held object the arms should connect to
         -- This ensures arms connect correctly regardless of the object's visual flip
-        local effective_left_hold_point = Animation.Holding.state.holding_point_left   -- Default: left arm connects to left point
-        local effective_right_hold_point = Animation.Holding.state.holding_point_right -- Default: right arm connects to right point
+        local effective_left_hold_point = Holding.state.holding_point_left   -- Default: left arm connects to left point
+        local effective_right_hold_point = Holding.state.holding_point_right -- Default: right arm connects to right point
 
         if is_flipped then
             -- If visually flipped, swap the effective points
-            effective_left_hold_point = Animation.Holding.state.holding_point_right -- Left arm connects to what *was* the right point
-            effective_right_hold_point = Animation.Holding.state.holding_point_left  -- Right arm connects to what *was* the left point
+            effective_left_hold_point = Holding.state.holding_point_right -- Left arm connects to what *was* the right point
+            effective_right_hold_point = Holding.state.holding_point_left  -- Right arm connects to what *was* the left point
         end
 
         -- Get the world coordinates of these effective connection points
-        target_left_hand_world = Animation.Holding.state.holding:get_world_point(effective_left_hold_point);
-        target_right_hand_world = Animation.Holding.state.holding:get_world_point(effective_right_hold_point);
+        target_left_hand_world = Holding.state.holding:get_world_point(effective_left_hold_point);
+        target_right_hand_world = Holding.state.holding:get_world_point(effective_right_hold_point);
 
 
         -- Calculate arm angles based on the determined target points
@@ -914,7 +914,7 @@ Animation.Legs.handle_locomotion = function(self, dt, is_jumping, input)
         if player:pointer_pressed() and Animation.Recoil.timers.fire_cooldown_timer <= 0 then
             Animation.Recoil.timers.fire_cooldown_timer = Animation.Recoil.params.FIRE_COOLDOWN_DURATION;
             local total_recoil_this_frame = 0;
-            local holding_components = Animation.Holding.state.holding:get_components();
+            local holding_components = Holding.state.holding:get_components();
             for i=1,#holding_components do
                 local output = holding_components[i]:send_event("activate");
                 if type(output) == "table" and type(output.recoil) == "number" then
@@ -965,7 +965,7 @@ Animation.Arms.handle_neutral = function(self, left_pivot_world, right_pivot_wor
 end
 
 Animation.Arms.handle = function(self, left_pivot_world, right_pivot_world, body_parts, is_jumping, walk_cycle_time, dt, input)
-    if Animation.Holding.state.holding then
+    if Holding.state.holding then
         -- Handle logic for holding an object
         self:handle_holding(left_pivot_world, right_pivot_world, dt)
     else
