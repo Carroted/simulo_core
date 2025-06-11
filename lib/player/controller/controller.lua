@@ -13,9 +13,9 @@
 
 -- SUBMODULES --
 local Controller = {} -- Primary class.
-local Legs = {}--require("core/lib/player/legs.lua") -- Handles leg animations and movement.
-local Arms = {}--require("core/lib/player/arms.lua") -- Handles arm animations and holding logic.
-local Recoil = {}--require("core/lib/player/recoil.lua") -- Handles recoil effects when firing weapons.
+local Legs = require("core/lib/player/controller/legs.lua") -- Handles leg animations and movement.
+local Arms = require("core/lib/player/controller/arms.lua") -- Handles arm animations and holding logic.
+local Recoil = require("core/lib/player/controller/recoil.lua") -- Handles recoil effects when firing weapons.
 
 local Holding = require("core/lib/player/controller/holding.lua") -- Handles picking up and dropping objects.
     Holding.History = require("core/lib/player/controller/holding_history.lua") -- Keeps track of holding history for dropped objects.
@@ -30,109 +30,6 @@ local Body = {} -- Handles the player's body parts and their properties.
 local Camera = require("core/lib/player/controller/camera.lua") -- Handles camera position and movement.
 
 local player = Scene:get_host()
-
--- Animation
-Legs.init = function(self, dependencies)
-    self.Input = dependencies.Input
-end
-Legs.params = {
-    WALK_CYCLE_SPEED = 30.0;
-    WALK_SWING_AMPLITUDE = math.rad(35);
-    JUMP_TUCK_ANGLE = math.rad(20);
-    NEUTRAL_ANGLE = math.rad(0);
-    LEG_ANGLE_CONTROL_KP = 50.0;
-    MAX_MOTOR_SPEED_FOR_LEG_CONTROL = 15.0;
-    WALK_TORQUE = 200.0;
-    JUMP_TORQUE = 250.0;
-    IDLE_TORQUE = 5.0;
-}
-Legs.State = {
-    walk_cycle_time = 0;
-}
-Legs.set_leg_hinge_motor = function(self, hinge, speed, torque)
-    if not hinge then return end;
-    local speed_prop = hinge:get_property("motor_speed");
-    if speed_prop then
-        speed_prop.value = -speed;
-        hinge:set_property("motor_speed", speed_prop);
-    else
-         print("Warning: motor_speed property not found for leg hinge")
-    end;
-    local torque_prop = hinge:get_property("max_motor_torque");
-    if torque_prop then
-        torque_prop.value = torque;
-        hinge:set_property("max_motor_torque", torque_prop);
-    else
-         print("Warning: max_motor_torque property not found for leg hinge")
-    end;
-end;
-
-Legs.get_current_leg_hinge_angle = function(self, hinge_component)
-    if not hinge_component then return nil end
-    local joint = hinge_component:send_event("core/hinge/get");
-    if not joint then return nil end
-    local obj_a = joint:get_object_a();
-    local obj_b = joint:get_object_b();
-    if not obj_a or not obj_b then return nil end
-    local angle_a = obj_a:get_angle();
-    local angle_b = obj_b:get_angle();
-    local relative_angle = angle_b - angle_a;
-    relative_angle = math.atan2(math.sin(relative_angle), math.cos(relative_angle));
-    return relative_angle;
-end
-
-Legs.calculate_motor_speed_for_leg_angle = function(self, current_angle, target_angle, kp, max_speed)
-    if current_angle == nil then return 0 end
-    local angle_error = target_angle - current_angle;
-    angle_error = math.atan2(math.sin(angle_error), math.cos(angle_error));
-    local desired_speed = kp * angle_error;
-    desired_speed = math.clamp(desired_speed, -max_speed, max_speed);
-    return -desired_speed;
-end
-
-
-Arms.params = {
-    NEUTRAL_ARM_ANGLE_REL = math.rad(58);
-    JUMP_TUCK_ARM_ANGLE_REL = math.rad(10);
-}
-Arms.pivots = {
-    left_arm_pivot = vec2(0, 0);
-    right_arm_pivot = vec2(0, 0);
-}
-Recoil.init = function(self, dependencies)
-    -- Do nothing
-end
-Recoil.params = {
-    FIRE_COOLDOWN_DURATION = 0.3;
-    RECOIL_APPLICATION_SPEED = 40.0; -- Updated Constant
-    RECOIL_DECAY_SPEED = 10.0;   -- Updated Constant
-    MIN_RECOIL_DISTANCE_CLAMP = 0.1;
-    MAX_HOLD_DISTANCE = 0.4;
-}
-Recoil.state = {
-    target_pointer_recoil_offset = vec2(0, 0);
-    current_pointer_recoil_offset = vec2(0, 0);
-}
-Recoil.timers = {
-    fire_cooldown_timer = 0;
-}
-
-Recoil.update_timers = function(self, dt)
-    self.timers.fire_cooldown_timer = math.max(0, self.timers.fire_cooldown_timer - dt)
-end
-
-Recoil.update_recoil = function(self, dt, lerp_vec2)
-    self.state.current_pointer_recoil_offset = lerp_vec2(self.state.current_pointer_recoil_offset, self.state.target_pointer_recoil_offset, dt * self.params.RECOIL_APPLICATION_SPEED)
-    self.state.target_pointer_recoil_offset = lerp_vec2(self.state.target_pointer_recoil_offset, vec2(0, 0), dt * self.params.RECOIL_DECAY_SPEED)
-    if self.state.target_pointer_recoil_offset:length() ^ 2 < 0.00001 then
-        self.state.target_pointer_recoil_offset = vec2(0, 0)
-        if self.state.current_pointer_recoil_offset:length() ^ 2 < 0.00001 then
-            self.state.current_pointer_recoil_offset = vec2(0, 0)
-        end
-    end
-end
-
-
 
 -- Body
 Body.parts = {
@@ -166,9 +63,6 @@ Body.get_body_mass = function(self)
         return 1.0
     end
 end
-
-
-
 
 Movement.params = {
     acceleration_time = 10; -- Multiplies the time it takes to reach a given speed
@@ -450,52 +344,13 @@ Body.on_save = function(self)
     }
 end
 
-Arms.init = function(self, dependencies)
-    self.Input = dependencies.Input
-    self.Holding = dependencies.Holding
-end
-
-Arms.on_start = function(self, saved_data)
-
-    self.pivots.left_arm_pivot = saved_data.left_arm_pivot or vec2(-0.1, 0.15)
-    self.pivots.right_arm_pivot = saved_data.right_arm_pivot or vec2(0.1, 0.15)
-end
-
-Arms.on_save = function(self)
-    return {
-        left_arm_pivot = self.pivots.left_arm_pivot,
-        right_arm_pivot = self.pivots.right_arm_pivot
-    }
-end
-
-Legs.on_start = function(self, saved_data)
-    self.State.walk_cycle_time = saved_data.walk_cycle_time or 0
-end
-
-Legs.on_save = function(self)
-    return {
-        walk_cycle_time = self.State.walk_cycle_time
-    }
-end
-
-
-
-Recoil.on_start = function(self)
-    self.timers.fire_cooldown_timer = 0
-    self.state.target_pointer_recoil_offset = vec2(0, 0)
-    self.state.current_pointer_recoil_offset = vec2(0, 0)
-end
-
-Recoil.on_save = function(self)
-    return {}  -- No persistent data needed for recoil
-end
 
 
 
 Controller.init = function(self)
     -- Initialize submodules
-    Legs:init({Input = Input})
-    Arms:init({Input = Input, Holding = Holding})
+    Legs:init({Input = Input, Body = Body})
+    Arms:init({Input = Input, Holding = Holding, Recoil = Recoil, Body = Body, player = player})
     Recoil:init()
     Holding:init({})
     Holding.History:init({})
@@ -636,172 +491,6 @@ Movement.calculate_nudge_direction = function(self)
     else
         return 0;
     end;
-end
-
-Legs.handle_locomotion = function(self, dt, is_jumping)
-    local move_left = self.Input:move_left();
-    local move_right = self.Input:move_right();
-    local target_left_leg_angle = self.params.NEUTRAL_ANGLE
-    local target_right_leg_angle = self.params.NEUTRAL_ANGLE
-    local target_leg_torque = self.params.IDLE_TORQUE
-
-    if is_jumping then
-        target_left_leg_angle = self.params.JUMP_TUCK_ANGLE
-        target_right_leg_angle = -self.params.JUMP_TUCK_ANGLE
-        target_leg_torque = self.params.JUMP_TORQUE
-    elseif move_left or move_right then
-        local body_vel = Body.parts.body:get_linear_velocity()
-        local horizontal_vel_mag = (body_vel and math.abs(body_vel.x)) or 0
-        local vel_scale = math.min(math.max(horizontal_vel_mag, 0.4), 1.0)
-        self.State.walk_cycle_time = self.State.walk_cycle_time + (dt * self.params.WALK_CYCLE_SPEED * vel_scale)
-        local swing_offset = math.sin(self.State.walk_cycle_time) * self.params.WALK_SWING_AMPLITUDE
-        target_left_leg_angle = self.params.NEUTRAL_ANGLE + swing_offset * vel_scale
-        target_right_leg_angle = self.params.NEUTRAL_ANGLE - swing_offset * vel_scale
-        target_leg_torque = self.params.WALK_TORQUE
-    else
-        target_left_leg_angle = self.params.NEUTRAL_ANGLE
-        target_right_leg_angle = self.params.NEUTRAL_ANGLE
-        target_leg_torque = self.params.IDLE_TORQUE
-    end
-
-    if Body.hinges.left_hinge and Body.hinges.right_hinge then
-        local current_left_leg_angle = self:get_current_leg_hinge_angle(Body.hinges.left_hinge)
-        local current_right_leg_angle = self:get_current_leg_hinge_angle(Body.hinges.right_hinge)
-        local desired_left_leg_speed = self:calculate_motor_speed_for_leg_angle(current_left_leg_angle, target_left_leg_angle, self.params.LEG_ANGLE_CONTROL_KP, self.params.MAX_MOTOR_SPEED_FOR_LEG_CONTROL)
-        local desired_right_leg_speed = self:calculate_motor_speed_for_leg_angle(current_right_leg_angle, target_right_leg_angle, self.params.LEG_ANGLE_CONTROL_KP, self.params.MAX_MOTOR_SPEED_FOR_LEG_CONTROL)
-        self:set_leg_hinge_motor(Body.hinges.left_hinge, desired_left_leg_speed, target_leg_torque)
-        self:set_leg_hinge_motor(Body.hinges.right_hinge, desired_right_leg_speed, target_leg_torque)
-    end
-end
-
-Arms.handle_holding = function(self, left_pivot_world, right_pivot_world, dt)
-    if not self.Holding.state.holding then
-        return;
-    end;
-    -- Currently Holding an Object
-
-    local hold_center = (left_pivot_world + right_pivot_world) / 2.0;
-
-    -- Calculate effective pointer position including scaled, smoothed recoil
-    local raw_pointer_pos = player:pointer_pos()
-    local distance_to_pointer = (raw_pointer_pos - hold_center):length()
-    local scale_factor = math.max(Recoil.params.MIN_RECOIL_DISTANCE_CLAMP, distance_to_pointer)
-    local effective_recoil_offset = Recoil.state.current_pointer_recoil_offset * scale_factor
-    local pointer_world = raw_pointer_pos + effective_recoil_offset;
-
-    -- Calculate aiming direction vector and distance
-    local hold_direction_vec = pointer_world - hold_center;
-    local current_aim_dist = hold_direction_vec:length();
-    local effective_hold_dist = math.min(current_aim_dist, Recoil.params.MAX_HOLD_DISTANCE);
-
-    -- Calculate normalized aiming direction
-    local hold_direction_normalized;
-    if current_aim_dist < 0.001 then
-            hold_direction_normalized = Body.parts.body:get_right_direction() or vec2(1,0);
-            effective_hold_dist = 0;
-    else
-            hold_direction_normalized = hold_direction_vec:normalize();
-    end
-
-    -- Calculate target position and base angle
-    local target_holding_pos = hold_center + hold_direction_normalized * effective_hold_dist;
-    local target_holding_angle = math.atan2(hold_direction_normalized.y, hold_direction_normalized.x);
-
-    -- Determine if the object should be visually flipped
-    local is_flipped = (pointer_world.x < hold_center.x);
-
-    -- Apply visual flip to angle if needed
-    if false then
-        target_holding_angle = target_holding_angle + math.pi
-        target_holding_angle = math.atan2(math.sin(target_holding_angle), math.cos(target_holding_angle))
-    end
-
-    local target_left_hand_world, target_right_hand_world = self.Holding:handle_holding(target_holding_pos, target_holding_angle, is_flipped, dt);
-
-    -- Calculate arm angles based on the determined target points
-    if not target_left_hand_world or not target_right_hand_world then
-            print("Holding logic error: Cannot get world points on held object.")
-    else
-            local left_arm_full_vector = target_left_hand_world - left_pivot_world;
-            local right_arm_full_vector = target_right_hand_world - right_pivot_world;
-            -- Keep the Pi offset for the left arm assuming its sprite points rightwards initially
-            local left_arm_angle = math.atan2(left_arm_full_vector.y, left_arm_full_vector.x) + math.pi;
-            local right_arm_angle = math.atan2(right_arm_full_vector.y, right_arm_full_vector.x);
-            left_arm_angle = math.atan2(math.sin(left_arm_angle), math.cos(left_arm_angle));
-            right_arm_angle = math.atan2(math.sin(right_arm_angle), math.cos(right_arm_angle));
-            Body.parts.left_arm:set_position(left_pivot_world); Body.parts.left_arm:set_angle(left_arm_angle);
-            Body.parts.right_arm:set_position(right_pivot_world); Body.parts.right_arm:set_angle(right_arm_angle);
-    end
-
-    -- Activation Check
-    if player:pointer_pressed() and Recoil.timers.fire_cooldown_timer <= 0 then
-        Recoil.timers.fire_cooldown_timer = Recoil.params.FIRE_COOLDOWN_DURATION;
-        local total_recoil_this_frame = 0;
-        local holding_components = self.Holding.state.holding:get_components();
-        for i=1,#holding_components do
-            local output = holding_components[i]:send_event("activate");
-            if type(output) == "table" and type(output.recoil) == "number" then
-                total_recoil_this_frame = total_recoil_this_frame + output.recoil;
-            end
-        end;
-
-        if total_recoil_this_frame > 0 then
-            if hold_direction_normalized then
-                local perp_recoil_dir = vec2(-hold_direction_normalized.y, hold_direction_normalized.x)
-                if perp_recoil_dir.y < 0 then
-                    perp_recoil_dir = perp_recoil_dir * -1 -- Ensure upward recoil
-                end
-                local recoil_impulse_vector = perp_recoil_dir * total_recoil_this_frame;
-                Recoil.state.target_pointer_recoil_offset = Recoil.state.target_pointer_recoil_offset + recoil_impulse_vector;
-            else
-                print("Warning: Cannot calculate recoil direction because aim direction is degenerate.")
-            end
-        end
-    end -- End of activation check
-end
-
-Arms.handle_neutral = function(self, left_pivot_world, right_pivot_world, body, left_arm, right_arm, is_jumping, walk_cycle_time)
-    -- Handle logic for neutral arm positions
-    local target_left_arm_rel_angle = self.params.NEUTRAL_ARM_ANGLE_REL
-    local target_right_arm_rel_angle = -self.params.NEUTRAL_ARM_ANGLE_REL
-
-    if is_jumping then
-        target_left_arm_rel_angle = target_left_arm_rel_angle + self.params.JUMP_TUCK_ARM_ANGLE_REL
-        target_right_arm_rel_angle = target_right_arm_rel_angle - self.params.JUMP_TUCK_ARM_ANGLE_REL
-    elseif self.Input:move_left() or self.Input:move_right() then
-        local body_vel = body:get_linear_velocity()
-        local horizontal_vel_mag = (body_vel and math.abs(body_vel.x)) or 0
-        local vel_scale = math.min(math.max(horizontal_vel_mag, 0.4), 1.0)
-        local swing_offset = math.sin(walk_cycle_time) * Legs.params.WALK_SWING_AMPLITUDE
-        target_left_arm_rel_angle = self.params.NEUTRAL_ARM_ANGLE_REL - (swing_offset * vel_scale * 0.6)
-        target_right_arm_rel_angle = -self.params.NEUTRAL_ARM_ANGLE_REL + (swing_offset * vel_scale * 0.6)
-    end
-
-    local body_angle = body:get_angle()
-    local final_world_left_arm_angle = body_angle + target_left_arm_rel_angle
-    local final_world_right_arm_angle = body_angle + target_right_arm_rel_angle
-
-    left_arm:set_position(left_pivot_world)
-    left_arm:set_angle(final_world_left_arm_angle)
-    right_arm:set_position(right_pivot_world)
-    right_arm:set_angle(final_world_right_arm_angle)
-end
-
-Arms.handle = function(self, left_pivot_world, right_pivot_world, body_parts, is_jumping, walk_cycle_time, dt, input)
-    if self.Holding.state.holding then
-        -- Handle logic for holding an object
-        self:handle_holding(left_pivot_world, right_pivot_world, dt)
-    else
-        -- Handle logic for neutral arm positions
-        self:handle_neutral(left_pivot_world, right_pivot_world, 
-            body_parts.body, 
-            body_parts.left_arm, 
-            body_parts.right_arm, 
-            is_jumping,
-            walk_cycle_time,
-            input
-        )
-    end
 end
 
 Movement.straighten = function(self, body_parts)
