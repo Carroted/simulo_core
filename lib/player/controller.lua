@@ -305,23 +305,42 @@ Movement.ground = {
     ground_surface_velocity = vec2(0,0); -- For moving surfaces like cars
 }
 
--- Shorthand
-local NO_COLLISION_LAYERS = {};
+Physics.get_gravity = function(self)
+    return Scene:get_gravity() or vec2(0, -9.81) -- Default to Earth gravity if not set
+end
+Physics.on_start = function(self, bodyparts)
+    if not bodyparts or not bodyparts.body then
+        print("Physics Error: Body parts not initialized correctly.")
+        return
+    end
 
-Physics.get_body_mass = function(self, bodyparts)
-    if bodyparts.body and bodyparts.left_foot and bodyparts.right_foot and 
-       bodyparts.left_arm and bodyparts.right_arm and bodyparts.head then
-        return bodyparts.body:get_mass() + bodyparts.left_foot:get_mass() + bodyparts.right_foot:get_mass() +
-               bodyparts.left_arm:get_mass() + bodyparts.right_arm:get_mass() + bodyparts.head:get_mass()
+    -- Initialize body parts
+    self.bodyparts = bodyparts
+
+    -- Set up the physics properties for the body parts
+    for _, part in pairs(bodyparts) do
+        if part then
+            part:set_body_type(BodyType.Dynamic)
+            part:set_collision_layers({1}) -- Default collision layer
+            part:set_friction(0.5) -- Default friction
+        end
+    end
+end
+Physics.get_body_mass = function(self)
+    local b = self.bodyparts
+    if b.body and b.left_foot and b.right_foot and 
+       b.left_arm and b.right_arm and b.head then
+        return b.body:get_mass() + b.left_foot:get_mass() + b.right_foot:get_mass() +
+               b.left_arm:get_mass() + b.right_arm:get_mass() + b.head:get_mass()
     else
         return 1.0
     end
 end
 Physics.get_gravity_force = function(self)
-    return Scene:get_gravity() * self:get_body_mass(Body.parts)
+    return self:get_gravity() * self:get_body_mass(Body.parts)
 end
 Physics.down = function(self)
-    return Scene:get_gravity():normalize()
+    return self:get_gravity():normalize()
 end
 Physics.up = function(self)
     return -self:down()
@@ -336,6 +355,16 @@ Physics.rotate_vector_down = function(self, vector, ground_surface_normal)
     local ground_angle = math.atan2(ground_surface_normal.y, ground_surface_normal.x) - math.pi/2
     local rotated_vector = vector:rotate(-ground_angle)
     return rotated_vector
+end
+
+Body.get_position = function(self)
+    local body = self.parts.body
+    if body then
+        return body:get_position() or vec2(0, 0)
+    else
+        print("Error: Body component not found.")
+        return vec2(0, 0)
+    end
 end
 
 -- Individual module initialization functions
@@ -553,46 +582,52 @@ Movement.handle_roll = function(self)
     end
 end
 
-local function handle_jump()
-    if input.jump() then
-        jump_input_timer = movement_parameters.jump_input_time;
+Movement.handle_jump = function(self, jump_input)
+    if jump_input then
+        self.timers.jump_input_timer = self.params.jump_input_time;
     end
     if jump_input_timer > 0 and (on_ground or coyote_timer > 0) then
-        jump_input_timer = 0;
-        coyote_timer = 0; -- Reset coyote timer on jump
-        jumping = true;
-        just_jumped = true;
-        jump_end_timer = movement_parameters.jump_time;
+        self.timers.jump_input_timer = 0;
+        self.timers.coyote_timer = 0; -- Reset coyote timer on jump
+        self.state.jumping = true;
+        self.state.just_jumped = true;
+        self.timers.jump_end_timer = self.params.jump_time;
     end
 end
 
-local function handle_pick_up()
-    if input.pick_up() then
-        if holding then
-            drop_object()
+Animation.Holding.handle_pick_up = function(self, pick_up_input)
+    if pick_up_input then
+        if self.state.holding then
+            self:drop_object()
         end
         local objs = Scene:get_objects_in_circle({ position = player:pointer_pos(), radius = 0 });
         for i = 1, #objs do
             if (objs[i]:get_body_type() == BodyType.Dynamic) and (objs[i]:get_mass() < 1) then
-                pick_up(objs[i], vec2(-0.075, 0), vec2(0.075, 0));
+                self:pick_up(objs[i], vec2(-0.075, 0), vec2(0.075, 0));
                 break;
             end
         end
     end
 end
 
-local function handle_drop()
-    if input.drop() then
-        if holding then
-            drop_object()
+Animation.Holding.handle_drop = function(self, drop_input)
+    if drop_input then
+        if self.state.holding then
+            self:drop_object()
         end
     end
 end
 
-local function update_camera()
-    if player and cam_pos then
-        player:set_camera_position(cam_pos)
+Camera.update_camera = function(self)
+    if player and self.cam_pos then
+        player:set_camera_position(self.cam_pos)
     end
+end
+Camera.move_camera = function(self, position, velocity, dt, lerp_vec2)
+    local target_cam_pos = body:get_position() + vec2(0, 0.6)
+    self.cam_pos = self.cam_pos + velocity * dt
+    self.cam_pos = lerp_vec2(self.cam_pos, target_cam_pos, dt * 4)
+    player:set_camera_position(self.cam_pos)
 end
 
 
@@ -600,28 +635,43 @@ end
 function on_update(dt)
     Controller:on_update(dt)
 end
-Controller.on_update = function(self, dt)    handle_jump()
-    handle_pick_up()
-    handle_drop()
-    update_camera()
-    handle_roll()
+Controller.on_update = function(self, dt)
+    Movement:handle_jump(Input.get.jump())
+    Movement:handle_roll(Input.get.roll())
+    Animation.Holding:handle_pick_up(Input.get.pick_up())
+    Animation.Holding:handle_drop(Input.get.drop())
+    Camera:update_camera()
 end
 
 -- Step Function (Physics and main logic)
 function on_step(dt)
     dt = dt or (1.0 / 60.0)
+    Controller:on_step(dt)
+end
+function Controller.check_required_parts(self)
+    local body = Body.parts.body
+    local left_arm = Body.parts.left_arm
+    local right_arm = Body.parts.right_arm
 
-    if not body or not player or not left_arm or not right_arm then
-        print("on_step Error: Missing essential components (body, player, arms).")
+    if not player or not body or not left_arm or not right_arm then
+        print("Error: Missing essential components (player, body, arms).")
+        return false
+    end
+
+    return true
+end
+function Controller.on_step(self, dt)
+
+    if not self:check_required_parts() then
         return
     end
 
-    local function update_camera()
-        local target_cam_pos = body:get_position() + vec2(0, 0.6)
-        cam_pos = cam_pos + get_velocity_relative_to_ground() * dt
-        cam_pos = lerp_vec2(cam_pos, target_cam_pos, dt * 4)
-        player:set_camera_position(cam_pos)
-    end
+    Camera:move_camera(
+        Body:get_position(),
+        Physics:get_velocity_relative_to_ground(Body.parts.body),
+        dt,
+        Utils.lerp_vec2
+    )
 
     local function check_ground()
         local center_offset = vec2(0, -0.2)
