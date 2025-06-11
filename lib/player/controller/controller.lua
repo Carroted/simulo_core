@@ -20,9 +20,8 @@ local Recoil = require("core/lib/player/controller/recoil.lua") -- Handles recoi
 local Holding = require("core/lib/player/controller/holding.lua") -- Handles picking up and dropping objects.
     Holding.History = require("core/lib/player/controller/holding_history.lua") -- Keeps track of holding history for dropped objects.
 
-local Movement = { -- Applies player force changes and contains logic for special moves.
-    Ground = {}, -- Handles ground-related logic like friction and surface normals.
-}
+local Movement = {} -- Applies player force changes and contains logic for special moves.
+local Ground = require("core/lib/player/controller/ground.lua") -- Handles ground-related logic like friction and surface normals.
 local Physics = {} -- How the player moves through the world and accelerates.
 local Input = require("core/lib/player/controller/input.lua") -- Handles input polling and key mappings.
 local Utils = require("core/lib/player/controller/utils.lua") -- Utility functions for vector math and other helpers.
@@ -75,105 +74,6 @@ Movement.state = {
     last_velocity = vec2(0, 0); -- Last velocity of the player
 }
 
-Movement.Ground.state = {
-    ground_friction = 0.1;
-    ground_surface_normal = vec2(0,1); -- Normal of the ground surface
-    ground_surface_velocity = vec2(0,0); -- For moving surfaces like cars
-    ground_object = nil; -- The object the player is currently standing on
-}
-
-Movement.Ground.check_ground = function(self, body, parts)
-    local center_offset = vec2(0, -0.2)
-    local left_offset = vec2(-0.2, -0.2)
-    local right_offset = vec2(0.2, -0.2)
-    local ray_offsets = {center_offset, left_offset, right_offset}
-    
-    local found_ground = false
-    local current_ground_normal = vec2(0, 1)
-    local current_ground_velocity = vec2(0, 0)
-    local current_ground_friction = 0.1
-    local current_ground_object = nil
-    
-    -- Check each ray position
-    for _, offset in ipairs(ray_offsets) do
-        local ground_check_origin = body:get_world_point(offset)
-        if ground_check_origin then
-            local hits = Scene:raycast({
-                origin = ground_check_origin, 
-                direction = Physics:down(),
-                distance = 0.2, 
-                closest_only = false,
-            })
-            
-            for i = 1, #hits do
-                local visited = {}
-                local found = {}
-                local function scan_connected(obj)
-                    if obj == nil or visited[obj.id] then return end
-                    visited[obj.id] = true
-                    table.insert(found, obj)
-                    local connected_objs = obj:get_direct_connected()
-                    for _, next_obj in ipairs(connected_objs) do scan_connected(next_obj) end
-                end
-                scan_connected(hits[i].object)
-                
-                local connected_to_self = false
-                for _, obj in ipairs(found) do
-                    if obj.id == body.id or obj.id == parts.left_arm.id or obj.id == parts.right_arm.id then
-                        connected_to_self = true
-                        break
-                    end
-                end
-                
-                if not connected_to_self then
-                    found_ground = true
-                    if Movement.state.on_ground == false then
-                        Movement.timers.landing = Movement.params.landing_window
-                    end
-                    Movement.state.on_ground = true
-                    current_ground_normal = hits[i].normal
-                    current_ground_velocity = hits[i].object:get_linear_velocity()
-                    current_ground_friction = hits[i].object:get_friction()
-                    current_ground_object = hits[i].object
-                    if Movement.timers.jump_end <= 0 then
-                        Movement.timers.coyote = Movement.params.coyote_time
-                        Movement.state.jumping = false
-                    end
-                    break
-                end
-            end
-            
-            -- If we found ground with this ray, no need to check others
-            if found_ground then break end
-        end
-    end
-    
-    -- If no ground found across any rays
-    if not found_ground then
-        Movement.state.on_ground = false
-        Movement.state.jumping = true
-        self.state.ground_surface_normal = Physics:up()
-        self.state.ground_surface_velocity = self.state.ground_surface_velocity -- Velocity is retained from last surface
-        self.state.ground_friction = 0.1
-        self.state.ground_object = nil
-    else
-        self.state.ground_surface_normal = current_ground_normal
-        self.state.ground_surface_velocity = current_ground_velocity
-        self.state.ground_friction = current_ground_friction
-        self.state.ground_object = current_ground_object
-    end
-end
-
-Movement.Ground.try_apply_force_to_ground = function(self, force)
-    if self.state.ground_object then
-        local ground_point = self.state.ground_object:get_world_point(Body:get_position())
-        if ground_point then
-            self.state.ground_object:apply_force(force, ground_point)
-        else
-            print("Error: Failed to get world point for ground object in Movement.Ground.try_apply_force_to_ground")
-        end
-    end
-end
 
 Movement.update_last_velocity = function(self, body)
     if not body then
@@ -219,7 +119,7 @@ Physics.up = function(self)
 end
 Physics.make_velocity_relative_to_ground = function(self, body, velocity)
     if not body or not velocity then return vec2(0, 0) end
-    local ground_surface_velocity = Movement.Ground.state.ground_surface_velocity
+    local ground_surface_velocity = Ground.state.ground_surface_velocity
     return velocity - ground_surface_velocity
 end
 Physics.get_velocity_relative_to_ground = function(self, body)
@@ -241,7 +141,8 @@ Controller.init = function(self)
     Recoil:init()
     Holding:init({})
     Holding.History:init({})
-    Body:init({Ground = Movement.Ground})
+    Body:init({Ground = Ground})
+    Ground:init({Movement = Movement, Physics = Physics, Body = Body})
 
     -- Others here once they get moved
 
@@ -385,7 +286,7 @@ Movement.straighten = function(self, body_parts)
     local time = 1
     local body = body_parts.body
 
-    local target_vector = self.Ground.state.ground_surface_normal
+    local target_vector = Ground.state.ground_surface_normal
     target_vector = target_vector:rotate(self.state.spin_angle)
 
     local current_angle = body:get_angle() + math.pi/2
@@ -398,7 +299,7 @@ Movement.straighten = function(self, body_parts)
 
     local straightening_force = target_vector * straightening_force_magnitude
 
-    local gravity_countering_force = -Utils.reflect(Physics:get_gravity_force(), -self.Ground.state.ground_surface_normal)
+    local gravity_countering_force = -Utils.reflect(Physics:get_gravity_force(), -Ground.state.ground_surface_normal)
 
     return straightening_force, gravity_countering_force
 end
@@ -446,9 +347,9 @@ Physics.get_horizontal_forces = function(self, dt, movement_parameters)
     local nudge_direction = Movement:calculate_nudge_direction()
     
     -- Calculate the perpendicular vector to the ground normal (tangent to ground)
-    local ground_tangent = Movement.Ground.state.ground_surface_normal:rotate(-math.pi/2)
+    local ground_tangent = Ground.state.ground_surface_normal:rotate(-math.pi/2)
 
-    local tangent_velocity = self:rotate_vector_down(self:get_velocity_relative_to_ground(Body.parts.body), Movement.Ground.state.ground_surface_normal)
+    local tangent_velocity = self:rotate_vector_down(self:get_velocity_relative_to_ground(Body.parts.body), Ground.state.ground_surface_normal)
     
     local is_moving = (nudge_direction ~= 0)
     local vel_x = tangent_velocity.x
@@ -472,7 +373,7 @@ end
 
 Physics.get_jump_force = function(self, dt, multiplier, movement_parameters)
     Movement.state.just_jumped = false
-    local relative_velocity = self:rotate_vector_down(self:get_velocity_relative_to_ground(Body.parts.body), Movement.Ground.state.ground_surface_normal)
+    local relative_velocity = self:rotate_vector_down(self:get_velocity_relative_to_ground(Body.parts.body), Ground.state.ground_surface_normal)
 
     -- Current velocity cancellation
     local force_to_cancel_vertical_speed
@@ -524,7 +425,7 @@ Physics.get_bounce_cancelling_force = function(self, dt, last_velocity, threshol
     local relative_velocity = self:get_velocity_relative_to_ground(Body.parts.body)
     local relative_last_velocity = self:make_velocity_relative_to_ground(Body.parts.body, last_velocity)
     if relative_last_velocity.y < -threshold and relative_velocity.y > 0 then
-        local cancelling_velocity = self:rotate_vector_down(vec2(0, -relative_velocity.y)/dt*Body:get_body_mass(), Movement.Ground.state.ground_surface_normal) -- No bounce cancelling force if bouncing up
+        local cancelling_velocity = self:rotate_vector_down(vec2(0, -relative_velocity.y)/dt*Body:get_body_mass(), Ground.state.ground_surface_normal) -- No bounce cancelling force if bouncing up
         print(Movement.state.just_jumped)
         return cancelling_velocity
     end
@@ -648,7 +549,7 @@ function Controller.on_step(self, dt)
         Utils.lerp_vec2
     )
 
-    Movement.Ground:check_ground(Body.parts.body, Body.parts)
+    Ground:check_ground(Body.parts.body, Body.parts)
 
     -- Use the Recoil.update_recoil function instead
 
