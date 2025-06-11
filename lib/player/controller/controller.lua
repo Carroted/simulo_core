@@ -13,11 +13,10 @@
 
 -- SUBMODULES --
 local Controller = {} -- Primary class.
-local Animation = { -- Handles all animations and player holding logic.
-    Legs = {}, -- Handles leg animations and movement.
-    Arms = {}, -- Handles arm animations and holding logic.
-    Recoil = {}, -- Handles recoil effects when firing weapons.
-}
+local Legs = {}--require("core/lib/player/legs.lua") -- Handles leg animations and movement.
+local Arms = {}--require("core/lib/player/arms.lua") -- Handles arm animations and holding logic.
+local Recoil = {}--require("core/lib/player/recoil.lua") -- Handles recoil effects when firing weapons.
+
 local Holding = require("core/lib/player/controller/holding.lua") -- Handles picking up and dropping objects.
     Holding.History = require("core/lib/player/controller/holding_history.lua") -- Keeps track of holding history for dropped objects.
 
@@ -33,10 +32,10 @@ local Camera = require("core/lib/player/controller/camera.lua") -- Handles camer
 local player = Scene:get_host()
 
 -- Animation
-Animation.Legs.init = function(self, dependencies)
+Legs.init = function(self, dependencies)
     self.Input = dependencies.Input
 end
-Animation.Legs.params = {
+Legs.params = {
     WALK_CYCLE_SPEED = 30.0;
     WALK_SWING_AMPLITUDE = math.rad(35);
     JUMP_TUCK_ANGLE = math.rad(20);
@@ -47,10 +46,10 @@ Animation.Legs.params = {
     JUMP_TORQUE = 250.0;
     IDLE_TORQUE = 5.0;
 }
-Animation.Legs.State = {
+Legs.State = {
     walk_cycle_time = 0;
 }
-Animation.Legs.set_leg_hinge_motor = function(self, hinge, speed, torque)
+Legs.set_leg_hinge_motor = function(self, hinge, speed, torque)
     if not hinge then return end;
     local speed_prop = hinge:get_property("motor_speed");
     if speed_prop then
@@ -68,7 +67,7 @@ Animation.Legs.set_leg_hinge_motor = function(self, hinge, speed, torque)
     end;
 end;
 
-Animation.Legs.get_current_leg_hinge_angle = function(self, hinge_component)
+Legs.get_current_leg_hinge_angle = function(self, hinge_component)
     if not hinge_component then return nil end
     local joint = hinge_component:send_event("core/hinge/get");
     if not joint then return nil end
@@ -82,7 +81,7 @@ Animation.Legs.get_current_leg_hinge_angle = function(self, hinge_component)
     return relative_angle;
 end
 
-Animation.Legs.calculate_motor_speed_for_leg_angle = function(self, current_angle, target_angle, kp, max_speed)
+Legs.calculate_motor_speed_for_leg_angle = function(self, current_angle, target_angle, kp, max_speed)
     if current_angle == nil then return 0 end
     local angle_error = target_angle - current_angle;
     angle_error = math.atan2(math.sin(angle_error), math.cos(angle_error));
@@ -92,37 +91,37 @@ Animation.Legs.calculate_motor_speed_for_leg_angle = function(self, current_angl
 end
 
 
-Animation.Arms.params = {
+Arms.params = {
     NEUTRAL_ARM_ANGLE_REL = math.rad(58);
     JUMP_TUCK_ARM_ANGLE_REL = math.rad(10);
 }
-Animation.Arms.pivots = {
+Arms.pivots = {
     left_arm_pivot = vec2(0, 0);
     right_arm_pivot = vec2(0, 0);
 }
-Animation.Recoil.init = function(self, dependencies)
+Recoil.init = function(self, dependencies)
     -- Do nothing
 end
-Animation.Recoil.params = {
+Recoil.params = {
     FIRE_COOLDOWN_DURATION = 0.3;
     RECOIL_APPLICATION_SPEED = 40.0; -- Updated Constant
     RECOIL_DECAY_SPEED = 10.0;   -- Updated Constant
     MIN_RECOIL_DISTANCE_CLAMP = 0.1;
     MAX_HOLD_DISTANCE = 0.4;
 }
-Animation.Recoil.state = {
+Recoil.state = {
     target_pointer_recoil_offset = vec2(0, 0);
     current_pointer_recoil_offset = vec2(0, 0);
 }
-Animation.Recoil.timers = {
+Recoil.timers = {
     fire_cooldown_timer = 0;
 }
 
-Animation.Recoil.update_timers = function(self, dt)
+Recoil.update_timers = function(self, dt)
     self.timers.fire_cooldown_timer = math.max(0, self.timers.fire_cooldown_timer - dt)
 end
 
-Animation.Recoil.update_recoil = function(self, dt, lerp_vec2)
+Recoil.update_recoil = function(self, dt, lerp_vec2)
     self.state.current_pointer_recoil_offset = lerp_vec2(self.state.current_pointer_recoil_offset, self.state.target_pointer_recoil_offset, dt * self.params.RECOIL_APPLICATION_SPEED)
     self.state.target_pointer_recoil_offset = lerp_vec2(self.state.target_pointer_recoil_offset, vec2(0, 0), dt * self.params.RECOIL_DECAY_SPEED)
     if self.state.target_pointer_recoil_offset:length() ^ 2 < 0.00001 then
@@ -133,9 +132,7 @@ Animation.Recoil.update_recoil = function(self, dt, lerp_vec2)
     end
 end
 
-Animation.update_timers = function(self, dt)
-    self.Recoil:update_timers(dt)
-end
+
 
 -- Body
 Body.parts = {
@@ -453,29 +450,29 @@ Body.on_save = function(self)
     }
 end
 
-Animation.Arms.init = function(self, dependencies)
+Arms.init = function(self, dependencies)
     self.Input = dependencies.Input
     self.Holding = dependencies.Holding
 end
 
-Animation.Arms.on_start = function(self, saved_data)
+Arms.on_start = function(self, saved_data)
 
     self.pivots.left_arm_pivot = saved_data.left_arm_pivot or vec2(-0.1, 0.15)
     self.pivots.right_arm_pivot = saved_data.right_arm_pivot or vec2(0.1, 0.15)
 end
 
-Animation.Arms.on_save = function(self)
+Arms.on_save = function(self)
     return {
         left_arm_pivot = self.pivots.left_arm_pivot,
         right_arm_pivot = self.pivots.right_arm_pivot
     }
 end
 
-Animation.Legs.on_start = function(self, saved_data)
+Legs.on_start = function(self, saved_data)
     self.State.walk_cycle_time = saved_data.walk_cycle_time or 0
 end
 
-Animation.Legs.on_save = function(self)
+Legs.on_save = function(self)
     return {
         walk_cycle_time = self.State.walk_cycle_time
     }
@@ -483,39 +480,23 @@ end
 
 
 
-Animation.Recoil.on_start = function(self)
+Recoil.on_start = function(self)
     self.timers.fire_cooldown_timer = 0
     self.state.target_pointer_recoil_offset = vec2(0, 0)
     self.state.current_pointer_recoil_offset = vec2(0, 0)
 end
 
-Animation.Recoil.on_save = function(self)
+Recoil.on_save = function(self)
     return {}  -- No persistent data needed for recoil
 end
 
-Animation.on_start = function(self, saved_data)
-    self.Arms:on_start(saved_data)
-    self.Legs:on_start(saved_data)
-    self.Recoil:on_start() -- No saved data needed for recoil
-end
 
-Animation.on_save = function(self)
-    local arms_data = self.Arms:on_save()
-    local legs_data = self.Legs:on_save()
-    
-    -- Merge the tables
-    local result = {}
-    for k, v in pairs(arms_data) do result[k] = v end
-    for k, v in pairs(legs_data) do result[k] = v end
-    
-    return result
-end
 
 Controller.init = function(self)
     -- Initialize submodules
-    Animation.Legs:init({Input = Input})
-    Animation.Arms:init({Input = Input, Holding = Holding})
-    Animation.Recoil:init()
+    Legs:init({Input = Input})
+    Arms:init({Input = Input, Holding = Holding})
+    Recoil:init()
     Holding:init({})
     Holding.History:init({})
 
@@ -533,7 +514,9 @@ end
 
 Controller.on_start = function(self, saved_data)
     Body:on_start(saved_data)
-    Animation:on_start(saved_data)
+    Arms:on_start(saved_data)
+    Legs:on_start(saved_data)
+    Recoil:on_start() -- No saved data needed for recoil
     Holding:on_start(saved_data)
     Camera:on_start(Body, player)
     Physics:on_start(Body.parts, Movement.params)
@@ -547,13 +530,15 @@ end
 
 Controller.on_save = function(self)
     local body_data = Body:on_save()
-    local animation_data = Animation:on_save()
+    local arms_data = Arms:on_save()
+    local legs_data = Legs:on_save()
     local holding_data = Holding:on_save()
     
     -- Merge the data tables
     local result = {}
     for k, v in pairs(body_data) do result[k] = v end
-    for k, v in pairs(animation_data) do result[k] = v end
+    for k, v in pairs(arms_data) do result[k] = v end
+    for k, v in pairs(legs_data) do result[k] = v end
     for k, v in pairs(holding_data) do result[k] = v end
     
     return result
@@ -653,7 +638,7 @@ Movement.calculate_nudge_direction = function(self)
     end;
 end
 
-Animation.Legs.handle_locomotion = function(self, dt, is_jumping)
+Legs.handle_locomotion = function(self, dt, is_jumping)
     local move_left = self.Input:move_left();
     local move_right = self.Input:move_right();
     local target_left_leg_angle = self.params.NEUTRAL_ANGLE
@@ -689,7 +674,7 @@ Animation.Legs.handle_locomotion = function(self, dt, is_jumping)
     end
 end
 
-Animation.Arms.handle_holding = function(self, left_pivot_world, right_pivot_world, dt)
+Arms.handle_holding = function(self, left_pivot_world, right_pivot_world, dt)
     if not self.Holding.state.holding then
         return;
     end;
@@ -700,14 +685,14 @@ Animation.Arms.handle_holding = function(self, left_pivot_world, right_pivot_wor
     -- Calculate effective pointer position including scaled, smoothed recoil
     local raw_pointer_pos = player:pointer_pos()
     local distance_to_pointer = (raw_pointer_pos - hold_center):length()
-    local scale_factor = math.max(Animation.Recoil.params.MIN_RECOIL_DISTANCE_CLAMP, distance_to_pointer)
-    local effective_recoil_offset = Animation.Recoil.state.current_pointer_recoil_offset * scale_factor
+    local scale_factor = math.max(Recoil.params.MIN_RECOIL_DISTANCE_CLAMP, distance_to_pointer)
+    local effective_recoil_offset = Recoil.state.current_pointer_recoil_offset * scale_factor
     local pointer_world = raw_pointer_pos + effective_recoil_offset;
 
     -- Calculate aiming direction vector and distance
     local hold_direction_vec = pointer_world - hold_center;
     local current_aim_dist = hold_direction_vec:length();
-    local effective_hold_dist = math.min(current_aim_dist, Animation.Recoil.params.MAX_HOLD_DISTANCE);
+    local effective_hold_dist = math.min(current_aim_dist, Recoil.params.MAX_HOLD_DISTANCE);
 
     -- Calculate normalized aiming direction
     local hold_direction_normalized;
@@ -749,8 +734,8 @@ Animation.Arms.handle_holding = function(self, left_pivot_world, right_pivot_wor
     end
 
     -- Activation Check
-    if player:pointer_pressed() and Animation.Recoil.timers.fire_cooldown_timer <= 0 then
-        Animation.Recoil.timers.fire_cooldown_timer = Animation.Recoil.params.FIRE_COOLDOWN_DURATION;
+    if player:pointer_pressed() and Recoil.timers.fire_cooldown_timer <= 0 then
+        Recoil.timers.fire_cooldown_timer = Recoil.params.FIRE_COOLDOWN_DURATION;
         local total_recoil_this_frame = 0;
         local holding_components = self.Holding.state.holding:get_components();
         for i=1,#holding_components do
@@ -767,7 +752,7 @@ Animation.Arms.handle_holding = function(self, left_pivot_world, right_pivot_wor
                     perp_recoil_dir = perp_recoil_dir * -1 -- Ensure upward recoil
                 end
                 local recoil_impulse_vector = perp_recoil_dir * total_recoil_this_frame;
-                Animation.Recoil.state.target_pointer_recoil_offset = Animation.Recoil.state.target_pointer_recoil_offset + recoil_impulse_vector;
+                Recoil.state.target_pointer_recoil_offset = Recoil.state.target_pointer_recoil_offset + recoil_impulse_vector;
             else
                 print("Warning: Cannot calculate recoil direction because aim direction is degenerate.")
             end
@@ -775,7 +760,7 @@ Animation.Arms.handle_holding = function(self, left_pivot_world, right_pivot_wor
     end -- End of activation check
 end
 
-Animation.Arms.handle_neutral = function(self, left_pivot_world, right_pivot_world, body, left_arm, right_arm, is_jumping, walk_cycle_time)
+Arms.handle_neutral = function(self, left_pivot_world, right_pivot_world, body, left_arm, right_arm, is_jumping, walk_cycle_time)
     -- Handle logic for neutral arm positions
     local target_left_arm_rel_angle = self.params.NEUTRAL_ARM_ANGLE_REL
     local target_right_arm_rel_angle = -self.params.NEUTRAL_ARM_ANGLE_REL
@@ -787,7 +772,7 @@ Animation.Arms.handle_neutral = function(self, left_pivot_world, right_pivot_wor
         local body_vel = body:get_linear_velocity()
         local horizontal_vel_mag = (body_vel and math.abs(body_vel.x)) or 0
         local vel_scale = math.min(math.max(horizontal_vel_mag, 0.4), 1.0)
-        local swing_offset = math.sin(walk_cycle_time) * Animation.Legs.params.WALK_SWING_AMPLITUDE
+        local swing_offset = math.sin(walk_cycle_time) * Legs.params.WALK_SWING_AMPLITUDE
         target_left_arm_rel_angle = self.params.NEUTRAL_ARM_ANGLE_REL - (swing_offset * vel_scale * 0.6)
         target_right_arm_rel_angle = -self.params.NEUTRAL_ARM_ANGLE_REL + (swing_offset * vel_scale * 0.6)
     end
@@ -802,7 +787,7 @@ Animation.Arms.handle_neutral = function(self, left_pivot_world, right_pivot_wor
     right_arm:set_angle(final_world_right_arm_angle)
 end
 
-Animation.Arms.handle = function(self, left_pivot_world, right_pivot_world, body_parts, is_jumping, walk_cycle_time, dt, input)
+Arms.handle = function(self, left_pivot_world, right_pivot_world, body_parts, is_jumping, walk_cycle_time, dt, input)
     if self.Holding.state.holding then
         -- Handle logic for holding an object
         self:handle_holding(left_pivot_world, right_pivot_world, dt)
@@ -1012,7 +997,7 @@ Controller.update_timers = function(self, dt)
     -- Movement timers
     Movement:update_movement_timers(dt)
     -- Animation timers
-    Animation.Recoil.timers.fire_cooldown_timer = math.max(0, Animation.Recoil.timers.fire_cooldown_timer - dt)
+    Recoil:update_timers(dt)
 end
     
 Movement.update_movement_timers = function(self, dt)
@@ -1112,21 +1097,21 @@ function Controller.on_step(self, dt)
 
     Movement.Ground:check_ground(Body.parts.body, Body.parts)
 
-    -- Use the Animation.Recoil.update_recoil function instead
+    -- Use the Recoil.update_recoil function instead
 
-    local left_pivot_world, right_pivot_world = Body:calculate_arm_pivots(Animation.Arms.pivots.left_arm_pivot, Animation.Arms.pivots.right_arm_pivot)
+    local left_pivot_world, right_pivot_world = Body:calculate_arm_pivots(Arms.pivots.left_arm_pivot, Arms.pivots.right_arm_pivot)
 
     -- Update animations and visual effects
-    Animation.Recoil:update_recoil(dt, Utils.lerp_vec2)
+    Recoil:update_recoil(dt, Utils.lerp_vec2)
     
     -- Calculate arm pivot positions
-    local left_pivot_world, right_pivot_world = Body:calculate_arm_pivots(Animation.Arms.pivots.left_arm_pivot, Animation.Arms.pivots.right_arm_pivot)
+    local left_pivot_world, right_pivot_world = Body:calculate_arm_pivots(Arms.pivots.left_arm_pivot, Arms.pivots.right_arm_pivot)
     
     -- Handle leg animation and movement
-    Animation.Legs:handle_locomotion(dt, Movement.state.jumping)
+    Legs:handle_locomotion(dt, Movement.state.jumping)
     
     -- Handle arm positioning and holding objects
-    Animation.Arms:handle(left_pivot_world, right_pivot_world, Body.parts, Movement.state.jumping, Animation.Legs.State.walk_cycle_time, dt, Input.get)
+    Arms:handle(left_pivot_world, right_pivot_world, Body.parts, Movement.state.jumping, Legs.State.walk_cycle_time, dt, Input.get)
     
     -- Calculate and apply physics forces
     local force, angular_force, straightening_force, gravity_countering_force = Physics:get_all_forces(dt)
