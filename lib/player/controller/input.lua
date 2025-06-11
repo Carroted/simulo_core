@@ -3,9 +3,6 @@ Input.player = Scene:get_host()
 Input.init = function(self, dependencies)
     self.player = dependencies.player
 end
-Input.on_start = function(self)
-    -- Do nothing
-end
 Input.keymap = {
     jump = "W"; -- Jump
     move_left = "A"; -- Move left

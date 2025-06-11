@@ -7,11 +7,6 @@ Camera.init = function(self, dependencies)
     self.player = dependencies.player
 end
     
-
-Camera.on_start = function(self)
-    -- Do nothing
-end
-
 Camera.on_save = function(self)
     return {}  -- Camera position doesn't need to be saved
 end
