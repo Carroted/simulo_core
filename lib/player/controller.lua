@@ -412,14 +412,14 @@ Physics.on_start = function(self, bodyparts)
         return
     end
 
-    -- Set up the physics properties for the body parts
-    for _, part in pairs(bodyparts) do
-        if part then
-            part:set_body_type(BodyType.Dynamic)
-            part:set_collision_layers({1}) -- Default collision layer
-            part:set_friction(0.5) -- Default friction
-        end
-    end
+    -- -- Set up the physics properties for the body parts
+    -- for _, part in pairs(bodyparts) do
+    --     if part then
+    --         part:set_body_type(BodyType.Dynamic)
+    --         part:set_collision_layers({1}) -- Default collision layer
+    --         part:set_friction(0.5) -- Default friction
+    --     end
+    -- end
 end
 Physics.get_body_mass = function(self)
     local b = Body.parts
@@ -694,7 +694,6 @@ Movement.roll = function(self)
         self.state.roll_direction = 0; -- No roll direction
     end
     self:begin_spin()
-    print("roll")
 end
 
 Movement.is_roll_possible = function(self)
@@ -1015,10 +1014,6 @@ Movement.straighten = function(self, body_parts)
         if fp_world then right_foot:apply_force(target_vector * -straightening_force/2, fp_world) end
     end
     body:apply_force_to_center(-Utils.reflect(Physics:get_gravity_force(), -target_vector))
-
-    print("Straightening with force: " .. straightening_force 
-    .. "\n at angle: " .. math.deg(angle_diff_clamped)
-    .. "\n with target vector: " .. tostring(target_vector))
 end
 
 Movement.calculate_next_bhop_speedup = function(self, bhop_speedup_factor, bhop_max_speed_factor, bhop_time, current_speedup) -- Called every jump
@@ -1082,7 +1077,6 @@ Physics.get_horizontal_forces = function(self, dt, movement_parameters)
         is_moving
     )
     local force = self:calculate_force(vel_x, target_velocity)
-    
     -- Calculate horizontal component along the ground
     local rotated_force = ground_tangent * force
 
