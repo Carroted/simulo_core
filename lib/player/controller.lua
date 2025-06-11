@@ -13,8 +13,17 @@
 
 -- SUBMODULES --
 local Controller = {} -- Primary class.
-local Animation = {} -- Handles all animations and player holding logic.
-local Movement = {} -- Applies player force changes and contains logic for special moves.
+local Animation = { -- Handles all animations and player holding logic.
+    Legs = {}, -- Handles leg animations and movement.
+    Arms = {}, -- Handles arm animations and holding logic.
+    Recoil = {}, -- Handles recoil effects when firing weapons.
+    Holding = { -- Handles picking up and dropping objects.
+        History = {}, -- Keeps track of holding history for dropped objects.
+    },
+}
+local Movement = { -- Applies player force changes and contains logic for special moves.
+    Ground = {}, -- Handles ground-related logic like friction and surface normals.
+}
 local Physics = {} -- How the player moves through the world and accelerates.
 local Input = {} -- Handles input polling and key mappings.
 local ObjectInteraction = {}
@@ -23,7 +32,6 @@ local Body = {} -- Handles the player's body parts and their properties.
 local Camera = {} -- Handles camera position and movement.
 
 -- Animation
-Animation.Legs = {}
 Animation.Legs.params = {
     WALK_CYCLE_SPEED = 30.0;
     WALK_SWING_AMPLITUDE = math.rad(35);
@@ -81,7 +89,6 @@ Animation.Legs.calculate_motor_speed_for_leg_angle = function(self, current_angl
 end
 
 
-Animation.Arms = {}
 Animation.Arms.params = {
     NEUTRAL_ARM_ANGLE_REL = math.rad(58);
     JUMP_TUCK_ARM_ANGLE_REL = math.rad(10);
@@ -90,7 +97,6 @@ Animation.Arms.pivots = {
     left_arm_pivot = vec2(0, 0);
     right_arm_pivot = vec2(0, 0);
 }
-Animation.Recoil = {}
 Animation.Recoil.params = {
     FIRE_COOLDOWN_DURATION = 0.3;
     target_pointer_recoil_offset = vec2(0, 0);
@@ -102,7 +108,6 @@ Animation.Recoil.params = {
 Animation.Recoil.Timers = {
     fire_cooldown_timer = 0;
 }
-Animation.Holding = {}
 Animation.Holding.state = {
     holding = nil;
     holding_point_left = nil;  -- Local point on object for LEFT arm when NOT flipped
@@ -110,7 +115,6 @@ Animation.Holding.state = {
     original_holding_layers = nil;
     original_holding_bodytype = nil;
 }
-Animation.Holding.History = {}
 Animation.Holding.History.state = {
     max_history_frames = 10;
     holding_history_buffer = {};
@@ -299,11 +303,89 @@ Movement.state = {
     bhop_speedup = 1; -- Speed multiplier for bhop boost, cannot exceed bhop_max_speed_factor
     spin_angle = 0; -- Angle for spinning the player around
 }
-Movement.ground = {
+
+Movement.Ground.state = {
     ground_friction = 0.1;
     ground_surface_normal = vec2(0,1); -- Normal of the ground surface
     ground_surface_velocity = vec2(0,0); -- For moving surfaces like cars
 }
+
+Movement.Ground.check_ground = function(self, body, parts)
+    local center_offset = vec2(0, -0.2)
+    local left_offset = vec2(-0.2, -0.2)
+    local right_offset = vec2(0.2, -0.2)
+    local ray_offsets = {center_offset, left_offset, right_offset}
+    
+    local found_ground = false
+    local current_ground_normal = vec2(0, 1)
+    local current_ground_velocity = vec2(0, 0)
+    local current_ground_friction = 0.1
+    
+    -- Check each ray position
+    for _, offset in ipairs(ray_offsets) do
+        local ground_check_origin = body:get_world_point(offset)
+        if ground_check_origin then
+            local hits = Scene:raycast({
+                origin = ground_check_origin, 
+                direction = Physics:down(),
+                distance = 0.2, 
+                closest_only = false,
+            })
+            
+            for i = 1, #hits do
+                local visited = {}
+                local found = {}
+                local function scan_connected(obj)
+                    if obj == nil or visited[obj.id] then return end
+                    visited[obj.id] = true
+                    table.insert(found, obj)
+                    local connected_objs = obj:get_direct_connected()
+                    for _, next_obj in ipairs(connected_objs) do scan_connected(next_obj) end
+                end
+                scan_connected(hits[i].object)
+                
+                local connected_to_self = false
+                for _, obj in ipairs(found) do
+                    if obj.id == body.id or obj.id == parts.left_arm.id or obj.id == parts.right_arm.id then
+                        connected_to_self = true
+                        break
+                    end
+                end
+                
+                if not connected_to_self then
+                    found_ground = true
+                    if Movement.state.on_ground == false then
+                        Movement.timers.landing_timer = Movement.params.landing_window
+                    end
+                    Movement.state.on_ground = true
+                    current_ground_normal = hits[i].normal
+                    current_ground_velocity = hits[i].object:get_linear_velocity()
+                    current_ground_friction = hits[i].object:get_friction()
+                    if Movement.timers.jump_end_timer <= 0 then
+                        Movement.timers.coyote_timer = Movement.params.coyote_time
+                        Movement.state.jumping = false
+                    end
+                    break
+                end
+            end
+            
+            -- If we found ground with this ray, no need to check others
+            if found_ground then break end
+        end
+    end
+    
+    -- If no ground found across any rays
+    if not found_ground then
+        Movement.state.on_ground = false
+        Movement.state.jumping = true
+        self.state.ground_surface_normal = Physics:up()
+        self.state.ground_friction = 0.1
+    else
+        self.state.ground_surface_normal = current_ground_normal
+        self.state.ground_surface_velocity = current_ground_velocity
+        self.state.ground_friction = current_ground_friction
+    end
+end
 
 Physics.get_gravity = function(self)
     return Scene:get_gravity() or vec2(0, -9.81) -- Default to Earth gravity if not set
@@ -349,7 +431,7 @@ Physics.get_velocity_relative_to_ground = function(self, body)
     if not body then return vec2(0, 0) end
     local current_velocity = body:get_linear_velocity()
     if not current_velocity then return vec2(0, 0) end
-    return current_velocity - Movement.ground.ground_surface_velocity
+    return current_velocity - Movement.Ground.state.ground_surface_velocity
 end
 Physics.rotate_vector_down = function(self, vector, ground_surface_normal)
     local ground_angle = math.atan2(ground_surface_normal.y, ground_surface_normal.x) - math.pi/2
@@ -673,80 +755,7 @@ function Controller.on_step(self, dt)
         Utils.lerp_vec2
     )
 
-    local function check_ground()
-        local center_offset = vec2(0, -0.2)
-        local left_offset = vec2(-0.2, -0.2)
-        local right_offset = vec2(0.2, -0.2)
-        local ray_offsets = {center_offset, left_offset, right_offset}
-        
-        local found_ground = false
-        local current_ground_normal = vec2(0, 1)
-        local current_ground_velocity = vec2(0, 0)
-        local current_ground_friction = 0.1
-        
-        -- Check each ray position
-        for _, offset in ipairs(ray_offsets) do
-            local ground_check_origin = body:get_world_point(offset)
-            if ground_check_origin then
-                local hits = Scene:raycast({
-                    origin = ground_check_origin, direction = down(),
-                    distance = 0.2, closest_only = false,
-                })
-                
-                for i = 1, #hits do
-                    local visited = {}
-                    local found = {}
-                    local function scan_connected(obj)
-                        if obj == nil or visited[obj.id] then return end
-                        visited[obj.id] = true
-                        table.insert(found, obj)
-                        local connected_objs = obj:get_direct_connected()
-                        for _, next_obj in ipairs(connected_objs) do scan_connected(next_obj) end
-                    end
-                    scan_connected(hits[i].object)
-                    
-                    local connected_to_self = false
-                    for _, obj in ipairs(found) do
-                        if obj.id == body.id or obj.id == left_arm.id or obj.id == right_arm.id then
-                            connected_to_self = true
-                            break
-                        end
-                    end
-                    
-                    if not connected_to_self then
-                        found_ground = true
-                        if on_ground == false then
-                            landing_timer = movement_parameters.landing_window
-                        end
-                        on_ground = true
-                        current_ground_normal = hits[i].normal
-                        current_ground_velocity = hits[i].object:get_linear_velocity()
-                        current_ground_friction = hits[i].object:get_friction()
-                        if jump_end_timer <= 0 then
-                            coyote_timer = movement_parameters.coyote_time
-                            jumping = false
-                        end
-                        break
-                    end
-                end
-                
-                -- If we found ground with this ray, no need to check others
-                if found_ground then break end
-            end
-        end
-        
-        -- If no ground found across any rays
-        if not found_ground then
-            on_ground = false
-            jumping = true
-            ground_surface_normal = up()
-            ground_friction = 0.1
-        else
-            ground_surface_normal = current_ground_normal
-            ground_surface_velocity = current_ground_velocity
-            ground_friction = current_ground_friction
-        end
-    end
+    Movement.Ground:check_ground(Body.parts.body, Body.parts)
 
     local function update_recoil()
         fire_cooldown_timer = math.max(0, fire_cooldown_timer - dt)
@@ -1207,8 +1216,6 @@ function Controller.on_step(self, dt)
 
     local debug = false
 
-    update_camera()
-    check_ground()
     update_recoil()
     local left_pivot_world, right_pivot_world = calculate_arm_pivots()
     if not debug then
