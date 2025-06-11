@@ -36,7 +36,7 @@ local controller = Scene:add_component_def({
     id = "core/components/player_controller",
     name = "Player Controller",
     version = "0.1.0",
-    code = require('core/lib/player/controller.lua', 'string'),
+    code = require('core/lib/player/controller/controller.lua', 'string'),
 });
 
 local function player(tbl)

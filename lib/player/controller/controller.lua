@@ -25,11 +25,15 @@ local Movement = { -- Applies player force changes and contains logic for specia
     Ground = {}, -- Handles ground-related logic like friction and surface normals.
 }
 local Physics = {} -- How the player moves through the world and accelerates.
-local Input = {} -- Handles input polling and key mappings.
-local ObjectInteraction = {}
-local Utils = {} -- Utility functions for vector math and other helpers.
+local Input = require("core/lib/player/controller/input.lua") -- Handles input polling and key mappings.
+local Utils = require("core/lib/player/controller/utils.lua") -- Utility functions for vector math and other helpers.
 local Body = {} -- Handles the player's body parts and their properties.
-local Camera = {} -- Handles camera position and movement.
+local Camera = require("core/lib/player/controller/camera.lua") -- Handles camera position and movement.
+
+if Utils == nil then
+    print("Error: Utils module not found. Ensure it is correctly required.")
+    return
+end
 
 -- Animation
 Animation.Legs.params = {
@@ -238,47 +242,29 @@ Body.hinges = {
     left_hinge = nil; -- Hinge for left leg
     right_hinge = nil; -- Hinge for right leg
 }
+Body.get_body_mass = function(self)
+    local b = self.parts
+    if b.body and b.left_foot and b.right_foot and 
+       b.left_arm and b.right_arm and b.head then
+        return b.body:get_mass() + b.left_foot:get_mass() + b.right_foot:get_mass() +
+               b.left_arm:get_mass() + b.right_arm:get_mass() + b.head:get_mass()
+    else
+        print("Physics Error: Body parts not initialized correctly at Physics.get_body_mass."
+        .. "The missing body parts are: "
+        .. (b.body and "" or "body, ")
+        .. (b.left_foot and "" or "left_foot, ")
+        .. (b.right_foot and "" or "right_foot, ")
+        .. (b.left_arm and "" or "left_arm, ")
+        .. (b.right_arm and "" or "right_arm, ")
+        .. (b.head and "" or "head, "))
+
+        return 1.0
+    end
+end
 
 local player = Scene:get_host();
 
 
-Utils.dot = function(v1, v2)
-    return v1.x * v2.x + v1.y * v2.y
-end
-Utils.reflect = function(v, normal)
-    local v_mag = v:magnitude()
-    v = v:normalize()
-    normal = normal:normalize()
-    local dot_product = Utils.dot(v, normal)
-    return vec2(v.x - 2 * dot_product * normal.x, v.y - 2 * dot_product * normal.y) * v_mag
-end
-Utils.lerp_vec2 = function(v1, v2, t)
-    t = math.clamp(t, 0, 1)
-    return vec2(
-        v1.x * (1 - t) + v2.x * t,
-        v1.y * (1 - t) + v2.y * t
-    )
-end
-
-Camera.cam_pos = vec2(0, 0);
-
-Input.keymap = {
-    jump = "W"; -- Jump
-    move_left = "A"; -- Move left
-    move_right = "D"; -- Move right
-    pick_up = "E"; -- Pick up object
-    drop = "Q"; -- Drop object
-    roll = "S"; -- Roll (left/right movement)
-}
-Input.get = {
-    jump = function() return player:key_just_pressed(Input.keymap.jump) end, -- Only works in on_update()
-    hold_jump = function() return player:key_pressed(Input.keymap.jump) end,
-    move_left = function() return player:key_pressed(Input.keymap.move_left) end,
-    move_right = function() return player:key_pressed(Input.keymap.move_right) end,
-    pick_up = function() return player:key_just_pressed(Input.keymap.pick_up) end, -- Only works in on_update()
-    drop = function() return player:key_just_pressed(Input.keymap.drop) end, -- Only works in on_update()
-    roll = function() return player:key_just_pressed(Input.keymap.roll) end, -- Only works in on_update()
-}
 
 Movement.params = {
     acceleration_time = 10; -- Multiplies the time it takes to reach a given speed
@@ -423,27 +409,8 @@ Physics.on_start = function(self, bodyparts, movement_parameters)
     --     end
     -- end
 end
-Physics.get_body_mass = function(self)
-    local b = Body.parts
-    if b.body and b.left_foot and b.right_foot and 
-       b.left_arm and b.right_arm and b.head then
-        return b.body:get_mass() + b.left_foot:get_mass() + b.right_foot:get_mass() +
-               b.left_arm:get_mass() + b.right_arm:get_mass() + b.head:get_mass()
-    else
-        print("Physics Error: Body parts not initialized correctly at Physics.get_body_mass."
-        .. "The missing body parts are: "
-        .. (b.body and "" or "body, ")
-        .. (b.left_foot and "" or "left_foot, ")
-        .. (b.right_foot and "" or "right_foot, ")
-        .. (b.left_arm and "" or "left_arm, ")
-        .. (b.right_arm and "" or "right_arm, ")
-        .. (b.head and "" or "head, "))
-
-        return 1.0
-    end
-end
 Physics.get_gravity_force = function(self)
-    return self:get_gravity() * self:get_body_mass()
+    return self:get_gravity() * Body:get_body_mass()
 end
 Physics.down = function(self)
     return self:get_gravity():normalize()
@@ -634,20 +601,6 @@ Animation.on_save = function(self)
     return result
 end
 
-Camera.on_start = function(self, body)
-    if body then
-        self.cam_pos = body:get_position()
-        player:set_camera_position(self.cam_pos + vec2(0, 0.6))
-    else
-        self.cam_pos = vec2(0, 0)
-        print("Warning: Body component not found on start.")
-    end
-end
-
-Camera.on_save = function(self)
-    return {}  -- Camera position doesn't need to be saved
-end
-
 -- Initialization Function
 function on_start(saved_data)
     Controller:on_start(saved_data)
@@ -656,8 +609,9 @@ end
 Controller.on_start = function(self, saved_data)
     Body:on_start(saved_data)
     Animation:on_start(saved_data)
-    Camera:on_start(Body.parts.body)
+    Camera:on_start(Body, player)
     Physics:on_start(Body.parts, Movement.params)
+    Input:on_start(player)
 end
 
 -- Save Function
@@ -752,18 +706,6 @@ Animation.Holding.handle_drop = function(self, drop_input)
             self:drop_object()
         end
     end
-end
-
-Camera.update_camera = function(self)
-    if player and self.cam_pos then
-        player:set_camera_position(self.cam_pos)
-    end
-end
-Camera.move_camera = function(self, velocity, dt, lerp_vec2)
-    local target_cam_pos = Body:get_position() + vec2(0, 0.6)
-    self.cam_pos = self.cam_pos + velocity * dt
-    self.cam_pos = lerp_vec2(self.cam_pos, target_cam_pos, dt * 4)
-    player:set_camera_position(self.cam_pos)
 end
 
 
@@ -1053,7 +995,7 @@ Physics.calculate_force = function(self, current_horizontal_velocity, target_vel
     -- Calculate the force needed to reach the target velocity
     local dt = 1.0 / 60.0 -- Default dt if not provided
     local acceleration = (target_velocity - current_horizontal_velocity) / dt
-    local force = acceleration * self:get_body_mass()
+    local force = acceleration * Body:get_body_mass()
     return force
 end
 
@@ -1092,9 +1034,9 @@ Physics.get_jump_force = function(self, dt, multiplier, movement_parameters)
     -- Current velocity cancellation
     local impulse_to_cancel_vertical_speed
     if relative_velocity.y < 0 then
-        impulse_to_cancel_vertical_speed = math.abs(relative_velocity.y) * self:get_body_mass()
+        impulse_to_cancel_vertical_speed = math.abs(relative_velocity.y) * Body:get_body_mass()
     else
-        impulse_to_cancel_vertical_speed = math.min(math.abs(relative_velocity.y) * self:get_body_mass(), movement_parameters.max_jump_bounce)
+        impulse_to_cancel_vertical_speed = math.min(math.abs(relative_velocity.y) * Body:get_body_mass(), movement_parameters.max_jump_bounce)
         -- Visually show boost
         -- if impulse_to_cancel_vertical_speed == movement_parameters.max_jump_bounce then
         --     print("nice!")
