@@ -24,6 +24,7 @@ Input.get = {
     pick_up = function() return player:key_just_pressed(Input.keymap.pick_up) end, -- Only works in on_update()
     drop = function() return player:key_just_pressed(Input.keymap.drop) end, -- Only works in on_update()
     roll = function() return player:key_just_pressed(Input.keymap.roll) end, -- Only works in on_update()
+    hold_roll = function() return player:key_pressed(Input.keymap.roll) end,
 }
 
 return Input
