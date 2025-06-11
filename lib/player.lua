@@ -261,6 +261,7 @@ local function player(tbl)
         right_hinge_arm = right_hinge_arm,
         left_arm = left_arm,
         right_arm = right_arm,
+        head = head_body,
         left_arm_pivot = simulon_box:get_local_point(left_arm:get_world_point(vec2(realer * 1.3 * 0.1, 0))),
         right_arm_pivot = simulon_box:get_local_point(right_arm:get_world_point(vec2(-realer * 1.3 * 0.1, 0))),
     } });

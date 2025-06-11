@@ -99,13 +99,15 @@ Animation.Arms.pivots = {
 }
 Animation.Recoil.params = {
     FIRE_COOLDOWN_DURATION = 0.3;
-    target_pointer_recoil_offset = vec2(0, 0);
-    current_pointer_recoil_offset = vec2(0, 0);
     RECOIL_APPLICATION_SPEED = 40.0; -- Updated Constant
     RECOIL_DECAY_SPEED = 10.0;   -- Updated Constant
     MIN_RECOIL_DISTANCE_CLAMP = 0.1;
 }
-Animation.Recoil.Timers = {
+Animation.Recoil.state = {
+    target_pointer_recoil_offset = vec2(0, 0);
+    current_pointer_recoil_offset = vec2(0, 0);
+}
+Animation.Recoil.timers = {
     fire_cooldown_timer = 0;
 }
 Animation.Holding.state = {
@@ -180,10 +182,10 @@ end
 Animation.Holding.History.drop_object = function(self, dropped_object)
     local linear_velocity = vec2(0, 0)
     local angular_velocity = 0
-    local current_buffer_size = #self.holding_history_buffer
+    local current_buffer_size = #self.state.holding_history_buffer
     if current_buffer_size >= 5 then
-        local index_now = history_index
-        local index_prev = (history_index - 4 + self.state.max_history_frames) % self.state.max_history_frames + 1
+        local index_now = self.state.history_index
+        local index_prev = (self.state.history_index - 4 + self.state.max_history_frames) % self.state.max_history_frames + 1
         local data_now = self.state.holding_history_buffer[index_now]
         local data_prev = self.state.holding_history_buffer[index_prev]
         if data_now and data_prev then
@@ -205,22 +207,36 @@ end
 
 
 Animation.Recoil.update_timers = function(self, dt)
-    self.Timers.fire_cooldown_timer = math.max(0, self.Timers.fire_cooldown_timer - dt)
+    self.timers.fire_cooldown_timer = math.max(0, self.timers.fire_cooldown_timer - dt)
 end
+
+Animation.Recoil.update_recoil = function(self, dt, lerp_vec2)
+    self.state.current_pointer_recoil_offset = lerp_vec2(self.state.current_pointer_recoil_offset, self.state.target_pointer_recoil_offset, dt * self.params.RECOIL_APPLICATION_SPEED)
+    self.state.target_pointer_recoil_offset = lerp_vec2(self.state.target_pointer_recoil_offset, vec2(0, 0), dt * self.params.RECOIL_DECAY_SPEED)
+    if self.state.target_pointer_recoil_offset:length() ^ 2 < 0.00001 then
+        self.state.target_pointer_recoil_offset = vec2(0, 0)
+        if self.state.current_pointer_recoil_offset:length() ^ 2 < 0.00001 then
+            self.state.current_pointer_recoil_offset = vec2(0, 0)
+        end
+    end
+end
+
 Animation.update_timers = function(self, dt)
     self.Recoil:update_timers(dt)
 end
 
 -- Body
 Body.parts = {
-    left_hinge = nil;
-    right_hinge = nil;
     body = nil;
     left_foot = nil;
     right_foot = nil;
     left_arm = nil;
     right_arm = nil;
     head = nil;
+}
+Body.hinges = {
+    left_hinge = nil; -- Hinge for left leg
+    right_hinge = nil; -- Hinge for right leg
 }
 
 local player = Scene:get_host();
@@ -288,12 +304,12 @@ Movement.params = {
 };
 
 Movement.timers = {
-    coyote_timer = 0; -- Coyote time for jump forgiveness
-    bhop_timer = 0; -- Timer for bhop boost
-    jump_end_timer = 0; -- Timer for jump hold during the jump
-    jump_input_timer = 0; -- Timer for jump input hold before the jump
-    landing_timer = 0; -- Timer for right after touching ground
-    rolling_timer = 0; -- Timer for rolls
+    coyote = 0; -- Coyote time for jump forgiveness
+    bhop = 0; -- Timer for bhop boost
+    jump_end = 0; -- Timer for jump hold during the jump
+    jump_input = 0; -- Timer for jump input hold before the jump
+    landing = 0; -- Timer for right after touching ground
+    rolling = 0; -- Timer for rolls
 }
 Movement.state = {
     on_ground = false; -- Whether the player is currently on the ground
@@ -355,14 +371,14 @@ Movement.Ground.check_ground = function(self, body, parts)
                 if not connected_to_self then
                     found_ground = true
                     if Movement.state.on_ground == false then
-                        Movement.timers.landing_timer = Movement.params.landing_window
+                        Movement.timers.landing = Movement.params.landing_window
                     end
                     Movement.state.on_ground = true
                     current_ground_normal = hits[i].normal
                     current_ground_velocity = hits[i].object:get_linear_velocity()
                     current_ground_friction = hits[i].object:get_friction()
-                    if Movement.timers.jump_end_timer <= 0 then
-                        Movement.timers.coyote_timer = Movement.params.coyote_time
+                    if Movement.timers.jump_end <= 0 then
+                        Movement.timers.coyote = Movement.params.coyote_time
                         Movement.state.jumping = false
                     end
                     break
@@ -392,12 +408,9 @@ Physics.get_gravity = function(self)
 end
 Physics.on_start = function(self, bodyparts)
     if not bodyparts or not bodyparts.body then
-        print("Physics Error: Body parts not initialized correctly.")
+        print("Physics Error: Body parts not initialized correctly. at Physics.on_start")
         return
     end
-
-    -- Initialize body parts
-    self.bodyparts = bodyparts
 
     -- Set up the physics properties for the body parts
     for _, part in pairs(bodyparts) do
@@ -409,17 +422,26 @@ Physics.on_start = function(self, bodyparts)
     end
 end
 Physics.get_body_mass = function(self)
-    local b = self.bodyparts
+    local b = Body.parts
     if b.body and b.left_foot and b.right_foot and 
        b.left_arm and b.right_arm and b.head then
         return b.body:get_mass() + b.left_foot:get_mass() + b.right_foot:get_mass() +
                b.left_arm:get_mass() + b.right_arm:get_mass() + b.head:get_mass()
     else
+        print("Physics Error: Body parts not initialized correctly at Physics.get_body_mass."
+        .. "The missing body parts are: "
+        .. (b.body and "" or "body, ")
+        .. (b.left_foot and "" or "left_foot, ")
+        .. (b.right_foot and "" or "right_foot, ")
+        .. (b.left_arm and "" or "left_arm, ")
+        .. (b.right_arm and "" or "right_arm, ")
+        .. (b.head and "" or "head, "))
+
         return 1.0
     end
 end
 Physics.get_gravity_force = function(self)
-    return self:get_gravity() * self:get_body_mass(Body.parts)
+    return self:get_gravity() * self:get_body_mass()
 end
 Physics.down = function(self)
     return self:get_gravity():normalize()
@@ -449,10 +471,42 @@ Body.get_position = function(self)
     end
 end
 
+Body.get_world_point = function(self, vector)
+    local body = self.parts.body
+    if body then
+        return body:get_world_point(vector) or vec2(0, 0)
+    else
+        print("Error: Body component not found.")
+        return vec2(0, 0)
+    end
+end
+
+Body.get_angular_velocity = function(self)
+    local body = self.parts.body
+    if body then
+        return body:get_angular_velocity() or 0
+    else
+        print("Error: Body component not found.")
+        return 0
+    end
+end
+
+Body.calculate_arm_pivots = function(self, left_arm_pivot, right_arm_pivot)
+    local body = self.parts.body
+    local left_pivot_world = self:get_world_point(left_arm_pivot)
+    local right_pivot_world = self:get_world_point(right_arm_pivot)
+    if not left_pivot_world or not right_pivot_world then
+        print("Error: Failed to get world pivot points.")
+        left_pivot_world = self:get_position()
+        right_pivot_world = self:get_position()
+    end
+    return left_pivot_world, right_pivot_world
+end
+
 -- Individual module initialization functions
 Body.on_start = function(self, saved_data)
-    self.parts.left_hinge = saved_data.left_hinge
-    self.parts.right_hinge = saved_data.right_hinge
+    self.hinges.left_hinge = saved_data.left_hinge
+    self.hinges.right_hinge = saved_data.right_hinge
     self.parts.body = saved_data.body
     self.parts.left_foot = saved_data.left_foot
     self.parts.right_foot = saved_data.right_foot
@@ -473,8 +527,8 @@ end
 
 Body.on_save = function(self)
     return {
-        left_hinge = self.parts.left_hinge,
-        right_hinge = self.parts.right_hinge,
+        left_hinge = self.hinges.left_hinge,
+        right_hinge = self.hinges.right_hinge,
         body = self.parts.body,
         left_foot = self.parts.left_foot,
         right_foot = self.parts.right_foot,
@@ -548,9 +602,9 @@ Animation.Holding.on_save = function(self)
 end
 
 Animation.Recoil.on_start = function(self)
-    self.Timers.fire_cooldown_timer = 0
-    self.params.target_pointer_recoil_offset = vec2(0, 0)
-    self.params.current_pointer_recoil_offset = vec2(0, 0)
+    self.timers.fire_cooldown_timer = 0
+    self.state.target_pointer_recoil_offset = vec2(0, 0)
+    self.state.current_pointer_recoil_offset = vec2(0, 0)
 end
 
 Animation.Recoil.on_save = function(self)
@@ -601,7 +655,6 @@ Controller.on_start = function(self, saved_data)
     Body:on_start(saved_data)
     Animation:on_start(saved_data)
     Camera:on_start(Body.parts.body)
-    Movement:on_start(Input, Physics, Body.parts.body)
     Physics:on_start(Body.parts)
 end
 
@@ -624,15 +677,15 @@ end
 
 
 
-local function begin_spin()
-    local current_velocity = get_velocity_relative_to_ground()
+Movement.begin_spin = function(self)
+    local current_velocity = Physics:get_velocity_relative_to_ground(Body.parts.body)
     local movement_direction = current_velocity.x < 0 and -1 or 1
-    spin_angle = math.pi/4 * -movement_direction
+    self.state.spin_angle = math.pi/4 * -movement_direction
 end
 
 Movement.roll = function(self)
-    self.timers.rolling_timer = movement_parameters.roll_time;
-    local velocity = get_velocity_relative_to_ground();
+    self.timers.rolling = self.params.roll_time;
+    local velocity = Physics:get_velocity_relative_to_ground(Body.parts.body);
     if velocity.x > 0 then
         self.state.roll_direction = 1; -- Roll right
     elseif velocity.x < 0 then
@@ -640,18 +693,18 @@ Movement.roll = function(self)
     else
         self.state.roll_direction = 0; -- No roll direction
     end
-    begin_spin()
+    self:begin_spin()
     print("roll")
 end
 
 Movement.is_roll_possible = function(self)
-    if self.timers.landing_timer == 0 then
+    if self.timers.landing == 0 then
         return false;
     end
-    if self.timers.rolling_timer > 0 then
+    if self.timers.rolling > 0 then
         return false; -- Already rolling
     end
-    local velocity = get_velocity_relative_to_ground();
+    local velocity = Physics:get_velocity_relative_to_ground(Body.parts.body);
     if math.abs(velocity.x) < self.params.roll_speed_threshold then
         return false; -- Not moving enough to roll
     end
@@ -659,21 +712,21 @@ Movement.is_roll_possible = function(self)
 end
 
 Movement.handle_roll = function(self)
-    if self.Input.roll() and self:is_roll_possible() then
+    if Input.get.roll() and self:is_roll_possible() then
         self:roll()
     end
 end
 
 Movement.handle_jump = function(self, jump_input)
     if jump_input then
-        self.timers.jump_input_timer = self.params.jump_input_time;
+        self.timers.jump_input = self.params.jump_input_time;
     end
-    if jump_input_timer > 0 and (on_ground or coyote_timer > 0) then
-        self.timers.jump_input_timer = 0;
-        self.timers.coyote_timer = 0; -- Reset coyote timer on jump
+    if self.timers.jump_input > 0 and (self.state.on_ground or self.timers.coyote > 0) then
+        self.timers.jump_input = 0;
+        self.timers.coyote = 0; -- Reset coyote timer on jump
         self.state.jumping = true;
         self.state.just_jumped = true;
-        self.timers.jump_end_timer = self.params.jump_time;
+        self.timers.jump_end = self.params.jump_time;
     end
 end
 
@@ -705,8 +758,8 @@ Camera.update_camera = function(self)
         player:set_camera_position(self.cam_pos)
     end
 end
-Camera.move_camera = function(self, position, velocity, dt, lerp_vec2)
-    local target_cam_pos = body:get_position() + vec2(0, 0.6)
+Camera.move_camera = function(self, velocity, dt, lerp_vec2)
+    local target_cam_pos = Body:get_position() + vec2(0, 0.6)
     self.cam_pos = self.cam_pos + velocity * dt
     self.cam_pos = lerp_vec2(self.cam_pos, target_cam_pos, dt * 4)
     player:set_camera_position(self.cam_pos)
@@ -723,6 +776,444 @@ Controller.on_update = function(self, dt)
     Animation.Holding:handle_pick_up(Input.get.pick_up())
     Animation.Holding:handle_drop(Input.get.drop())
     Camera:update_camera()
+end
+
+Movement.calculate_nudge_direction = function(self)
+        if self.timers.rolling > 0 then
+            return self.state.roll_direction
+        end
+        local move_left = Input.get.move_left();
+        local move_right = Input.get.move_right();
+        if move_left and not move_right then
+            return -1;
+        elseif move_right and not move_left then
+            return 1;
+        else
+            return 0;
+        end;
+    end
+
+Animation.Legs.handle_locomotion = function(self, dt, is_jumping, input)
+        local move_left = input.move_left();
+        local move_right = input.move_right();
+        local target_left_leg_angle = self.params.NEUTRAL_ANGLE
+        local target_right_leg_angle = self.params.NEUTRAL_ANGLE
+        local target_leg_torque = self.params.IDLE_TORQUE
+
+        if is_jumping then
+            target_left_leg_angle = self.params.JUMP_TUCK_ANGLE
+            target_right_leg_angle = -self.params.JUMP_TUCK_ANGLE
+            target_leg_torque = self.params.JUMP_TORQUE
+        elseif move_left or move_right then
+            local body_vel = Body.parts.body:get_linear_velocity()
+            local horizontal_vel_mag = (body_vel and math.abs(body_vel.x)) or 0
+            local vel_scale = math.min(math.max(horizontal_vel_mag, 0.4), 1.0)
+            self.State.walk_cycle_time = self.State.walk_cycle_time + (dt * self.params.WALK_CYCLE_SPEED * vel_scale)
+            local swing_offset = math.sin(self.State.walk_cycle_time) * self.params.WALK_SWING_AMPLITUDE
+            target_left_leg_angle = self.params.NEUTRAL_ANGLE + swing_offset * vel_scale
+            target_right_leg_angle = self.params.NEUTRAL_ANGLE - swing_offset * vel_scale
+            target_leg_torque = self.params.WALK_TORQUE
+        else
+            target_left_leg_angle = self.params.NEUTRAL_ANGLE
+            target_right_leg_angle = self.params.NEUTRAL_ANGLE
+            target_leg_torque = self.params.IDLE_TORQUE
+        end
+
+        if Body.hinges.left_hinge and Body.hinges.right_hinge then
+            local current_left_leg_angle = self:get_current_leg_hinge_angle(Body.hinges.left_hinge)
+            local current_right_leg_angle = self:get_current_leg_hinge_angle(Body.hinges.right_hinge)
+            local desired_left_leg_speed = self:calculate_motor_speed_for_leg_angle(current_left_leg_angle, target_left_leg_angle, self.params.LEG_ANGLE_CONTROL_KP, self.params.MAX_MOTOR_SPEED_FOR_LEG_CONTROL)
+            local desired_right_leg_speed = self:calculate_motor_speed_for_leg_angle(current_right_leg_angle, target_right_leg_angle, self.params.LEG_ANGLE_CONTROL_KP, self.params.MAX_MOTOR_SPEED_FOR_LEG_CONTROL)
+            self:set_leg_hinge_motor(Body.hinges.left_hinge, desired_left_leg_speed, target_leg_torque)
+            self:set_leg_hinge_motor(Body.hinges.right_hinge, desired_right_leg_speed, target_leg_torque)
+        end
+    end
+
+    Animation.Arms.handle_holding = function(self, left_pivot_world, right_pivot_world, dt)
+        if not Animation.Holding.state.holding then
+            return;
+        end;
+        -- Currently Holding an Object
+
+        local hold_center = (left_pivot_world + right_pivot_world) / 2.0;
+
+        -- Calculate effective pointer position including scaled, smoothed recoil
+        local raw_pointer_pos = player:pointer_pos()
+        local distance_to_pointer = (raw_pointer_pos - hold_center):length()
+        local scale_factor = math.max(Animation.Recoil.params.MIN_RECOIL_DISTANCE_CLAMP, distance_to_pointer)
+        local effective_recoil_offset = Animation.Recoil.state.current_pointer_recoil_offset * scale_factor
+        local pointer_world = raw_pointer_pos + effective_recoil_offset;
+
+        -- Calculate aiming direction vector and distance
+        local hold_direction_vec = pointer_world - hold_center;
+        local current_aim_dist = hold_direction_vec:length();
+        local effective_hold_dist = math.min(current_aim_dist, Animation.Legs.params.MAX_HOLD_DISTANCE);
+
+        -- Calculate normalized aiming direction
+        local hold_direction_normalized;
+        if current_aim_dist < 0.001 then
+             hold_direction_normalized = Body.parts.body:get_right_direction() or vec2(1,0);
+             effective_hold_dist = 0;
+        else
+             hold_direction_normalized = hold_direction_vec:normalize();
+        end
+
+        -- Calculate target position and base angle
+        local target_holding_pos = hold_center + hold_direction_normalized * effective_hold_dist;
+        local target_holding_angle = math.atan2(hold_direction_normalized.y, hold_direction_normalized.x);
+
+        -- Determine if the object should be visually flipped
+        local is_flipped = (pointer_world.x < hold_center.x);
+
+        -- Apply visual flip to angle if needed
+        if false then
+            target_holding_angle = target_holding_angle + math.pi
+            target_holding_angle = math.atan2(math.sin(target_holding_angle), math.cos(target_holding_angle))
+        end
+
+        -- Set the held object's final transform
+        Animation.Holding.state.holding:set_position(target_holding_pos);
+        Animation.Holding.state.holding:set_angle(target_holding_angle);
+
+        -- Update drop velocity history buffer
+        Animation.Holding.History.state.holding_cumulative_time = Animation.Holding.History.state.holding_cumulative_time + dt
+        Animation.Holding.History.state.history_index = (Animation.Holding.History.state.history_index % Animation.Holding.History.state.max_history_frames) + 1
+        Animation.Holding.History.state.holding_history_buffer[Animation.Holding.History.state.history_index] = {
+             pos = target_holding_pos, angle = target_holding_angle, time = Animation.Holding.History.state.holding_cumulative_time
+        }
+
+        -- Position the static arms - **CRITICAL CHANGE HERE**
+        local target_left_hand_world = nil
+        local target_right_hand_world = nil
+
+        -- Determine which local points on the held object the arms should connect to
+        -- This ensures arms connect correctly regardless of the object's visual flip
+        local effective_left_hold_point = Animation.Holding.state.holding_point_left   -- Default: left arm connects to left point
+        local effective_right_hold_point = Animation.Holding.state.holding_point_right -- Default: right arm connects to right point
+
+        if is_flipped then
+            -- If visually flipped, swap the effective points
+            effective_left_hold_point = Animation.Holding.state.holding_point_right -- Left arm connects to what *was* the right point
+            effective_right_hold_point = Animation.Holding.state.holding_point_left  -- Right arm connects to what *was* the left point
+        end
+
+        -- Get the world coordinates of these effective connection points
+        target_left_hand_world = Animation.Holding.state.holding:get_world_point(effective_left_hold_point);
+        target_right_hand_world = Animation.Holding.state.holding:get_world_point(effective_right_hold_point);
+
+
+        -- Calculate arm angles based on the determined target points
+        if not target_left_hand_world or not target_right_hand_world then
+             print("Holding logic error: Cannot get world points on held object.")
+        else
+             local left_arm_full_vector = target_left_hand_world - left_pivot_world;
+             local right_arm_full_vector = target_right_hand_world - right_pivot_world;
+             -- Keep the Pi offset for the left arm assuming its sprite points rightwards initially
+             local left_arm_angle = math.atan2(left_arm_full_vector.y, left_arm_full_vector.x) + math.pi;
+             local right_arm_angle = math.atan2(right_arm_full_vector.y, right_arm_full_vector.x);
+             left_arm_angle = math.atan2(math.sin(left_arm_angle), math.cos(left_arm_angle));
+             right_arm_angle = math.atan2(math.sin(right_arm_angle), math.cos(right_arm_angle));
+             Body.parts.left_arm:set_position(left_pivot_world); Body.parts.left_arm:set_angle(left_arm_angle);
+             Body.parts.right_arm:set_position(right_pivot_world); Body.parts.right_arm:set_angle(right_arm_angle);
+        end
+
+        -- Activation Check
+        if player:pointer_pressed() and Animation.Recoil.timers.fire_cooldown_timer <= 0 then
+            Animation.Recoil.timers.fire_cooldown_timer = Animation.Recoil.params.FIRE_COOLDOWN_DURATION;
+            local total_recoil_this_frame = 0;
+            local holding_components = Animation.Holding.state.holding:get_components();
+            for i=1,#holding_components do
+                local output = holding_components[i]:send_event("activate");
+                if type(output) == "table" and type(output.recoil) == "number" then
+                    total_recoil_this_frame = total_recoil_this_frame + output.recoil;
+                end
+            end;
+
+            if total_recoil_this_frame > 0 then
+                if hold_direction_normalized then
+                    local perp_recoil_dir = vec2(-hold_direction_normalized.y, hold_direction_normalized.x)
+                    if perp_recoil_dir.y < 0 then
+                        perp_recoil_dir = perp_recoil_dir * -1 -- Ensure upward recoil
+                    end
+                    local recoil_impulse_vector = perp_recoil_dir * total_recoil_this_frame;
+                    Animation.Recoil.state.target_pointer_recoil_offset = Animation.Recoil.state.target_pointer_recoil_offset + recoil_impulse_vector;
+                else
+                    print("Warning: Cannot calculate recoil direction because aim direction is degenerate.")
+                end
+            end
+        end -- End of activation check
+    end
+
+Animation.Arms.handle_neutral = function(self, left_pivot_world, right_pivot_world, body, left_arm, right_arm, is_jumping, walk_cycle_time, input)
+    -- Handle logic for neutral arm positions
+    local target_left_arm_rel_angle = self.params.NEUTRAL_ARM_ANGLE_REL
+    local target_right_arm_rel_angle = -self.params.NEUTRAL_ARM_ANGLE_REL
+
+    if is_jumping then
+        target_left_arm_rel_angle = target_left_arm_rel_angle + self.params.JUMP_TUCK_ARM_ANGLE_REL
+        target_right_arm_rel_angle = target_right_arm_rel_angle - self.params.JUMP_TUCK_ARM_ANGLE_REL
+    elseif input.move_left() or input.move_right() then
+        local body_vel = body:get_linear_velocity()
+        local horizontal_vel_mag = (body_vel and math.abs(body_vel.x)) or 0
+        local vel_scale = math.min(math.max(horizontal_vel_mag, 0.4), 1.0)
+        local swing_offset = math.sin(walk_cycle_time) * Animation.Legs.params.WALK_SWING_AMPLITUDE
+        target_left_arm_rel_angle = self.params.NEUTRAL_ARM_ANGLE_REL - (swing_offset * vel_scale * 0.6)
+        target_right_arm_rel_angle = -self.params.NEUTRAL_ARM_ANGLE_REL + (swing_offset * vel_scale * 0.6)
+    end
+
+    local body_angle = body:get_angle()
+    local final_world_left_arm_angle = body_angle + target_left_arm_rel_angle
+    local final_world_right_arm_angle = body_angle + target_right_arm_rel_angle
+
+    left_arm:set_position(left_pivot_world)
+    left_arm:set_angle(final_world_left_arm_angle)
+    right_arm:set_position(right_pivot_world)
+    right_arm:set_angle(final_world_right_arm_angle)
+end
+
+Animation.Arms.handle = function(self, left_pivot_world, right_pivot_world, body_parts, is_jumping, walk_cycle_time, dt, input)
+    if Animation.Holding.state.holding then
+        -- Handle logic for holding an object
+        self:handle_holding(left_pivot_world, right_pivot_world, dt)
+    else
+        -- Handle logic for neutral arm positions
+        self:handle_neutral(left_pivot_world, right_pivot_world, 
+            body_parts.body, 
+            body_parts.left_arm, 
+            body_parts.right_arm, 
+            is_jumping,
+            walk_cycle_time,
+            input
+        )
+    end
+end
+
+Movement.straighten = function(self, body_parts)
+    local time = 1
+    local body = body_parts.body
+    local left_foot = body_parts.left_foot
+    local right_foot = body_parts.right_foot
+
+    local target_vector = self.Ground.state.ground_surface_normal
+    target_vector = target_vector:rotate(self.state.spin_angle)
+
+    local current_angle = body:get_angle() + math.pi/2
+    local target_angle = math.atan2(target_vector.y, target_vector.x)
+    local current_angular_velocity = body:get_angular_velocity()
+    local angular_velocity_rotation = current_angular_velocity * time
+    local angle_diff = target_angle - current_angle + angular_velocity_rotation
+    local angle_diff_clamped = math.atan2(math.sin(angle_diff), math.cos(angle_diff))
+    local straightening_force = math.abs(angle_diff_clamped*(self.state.spin_angle == 0 and 10 or 20))
+
+    body:apply_force_to_center(target_vector * straightening_force)
+    if left_foot then
+        local fp_world = left_foot:get_world_point(vec2(0, -0.2))
+        if fp_world then left_foot:apply_force(target_vector * -straightening_force/2, fp_world) end
+    end
+    if right_foot then
+        local fp_world = right_foot:get_world_point(vec2(0, -0.2))
+        if fp_world then right_foot:apply_force(target_vector * -straightening_force/2, fp_world) end
+    end
+    body:apply_force_to_center(-Utils.reflect(Physics:get_gravity_force(), -target_vector))
+
+    print("Straightening with force: " .. straightening_force 
+    .. "\n at angle: " .. math.deg(angle_diff_clamped)
+    .. "\n with target vector: " .. tostring(target_vector))
+end
+
+Movement.calculate_next_bhop_speedup = function(self, bhop_speedup_factor, bhop_max_speed_factor, bhop_time, current_speedup) -- Called every jump
+    local new_speedup = bhop_max_speed_factor-((bhop_max_speed_factor-current_speedup)*bhop_speedup_factor)
+    return math.min((new_speedup), bhop_max_speed_factor)
+end
+
+Movement.bhop_jump_update = function(self)
+    if self.timers.bhop > 0 then
+        self.state.bhop_speedup = self:calculate_next_bhop_speedup(
+            self.params.bhop_speedup_factor,
+            self.params.bhop_max_speed_factor,
+            self.params.bhop_time,
+            self.state.bhop_speedup
+        )
+    end
+    self.timers.bhop = self.params.bhop_time
+end
+    
+Physics.calculate_horizontal_velocity = function(self, max_speed, acceleration_time, damping_base, current_horizontal_velocity, is_moving)
+    -- Formula for key pressed is (n-x)^2/t, where n is the max speed, x is the current speed, and t is the acceleration time
+    -- Formula for key released is x * d, where d is the damping base
+    local sign = current_horizontal_velocity < 0 and -1 or 1
+    local x = math.abs(current_horizontal_velocity) -- Will be undone on return
+    local calculated_velocity = x
+    if is_moving and x <= max_speed then
+        calculated_velocity = x + ((max_speed - x) ^ 2) / acceleration_time
+    else
+        calculated_velocity = x * damping_base
+    end
+    return calculated_velocity * sign
+end
+
+Physics.calculate_force = function(self, current_horizontal_velocity, target_velocity)
+    -- Calculate the force needed to reach the target velocity
+    local dt = 1.0 / 60.0 -- Default dt if not provided
+    local acceleration = (target_velocity - current_horizontal_velocity) / dt
+    local force = acceleration * self:get_body_mass()
+    return force
+end
+
+Physics.get_horizontal_forces = function(self, dt, movement_parameters)
+    local nudge_direction = Movement:calculate_nudge_direction()
+    
+    -- Calculate the perpendicular vector to the ground normal (tangent to ground)
+    local ground_tangent = Movement.Ground.state.ground_surface_normal:rotate(-math.pi/2)
+
+    local tangent_velocity = self:rotate_vector_down(self:get_velocity_relative_to_ground(Body.parts.body), Movement.Ground.state.ground_surface_normal)
+    
+    local is_moving = (nudge_direction ~= 0)
+    local vel_x = tangent_velocity.x
+    local is_slowing_down = (vel_x * nudge_direction < 0) and not (Movement.timers.rolling > 0) -- If trying to move in the opposite direction of current velocity
+    if is_slowing_down then
+        vel_x = vel_x * -0.01
+    end
+    local target_velocity = self:calculate_horizontal_velocity(
+        Movement.params.max_speed * Movement.state.bhop_speedup + (Movement.timers.rolling > 0 and Movement.params.roll_max_speed_increase or 0),
+        Movement.state.on_ground and Movement.params.acceleration_time or Movement.params.air_acceleration_time,
+        Movement.state.on_ground and Movement.params.damping_base or Movement.params.air_damping_base,
+        vel_x,
+        is_moving
+    )
+    local force = self:calculate_force(vel_x, target_velocity)
+    
+    -- Calculate horizontal component along the ground
+    local rotated_force = ground_tangent * force
+
+    return rotated_force
+end
+
+Physics.get_jump_force = function(self, dt, multiplier, movement_parameters)
+    Movement.state.just_jumped = false
+    local relative_velocity = self:rotate_vector_down(self:get_velocity_relative_to_ground(Body.parts.body), Movement.Ground.state.ground_surface_normal)
+
+    -- Current velocity cancellation
+    local impulse_to_cancel_vertical_speed
+    if relative_velocity.y < 0 then
+        impulse_to_cancel_vertical_speed = math.abs(relative_velocity.y) * self:get_body_mass()
+    else
+        impulse_to_cancel_vertical_speed = math.min(math.abs(relative_velocity.y) * self:get_body_mass(), movement_parameters.max_jump_bounce)
+        -- Visually show boost
+        -- if impulse_to_cancel_vertical_speed == movement_parameters.max_jump_bounce then
+        --     print("nice!")
+        --     begin_spin()
+        -- end
+    end
+
+    -- Speed bonus to reward running jumps
+    local current_speed_bonus = math.abs(relative_velocity.x) * movement_parameters.current_speed_factor
+    
+
+    local force = self:up() * (movement_parameters.jump_impulse * multiplier + current_speed_bonus + impulse_to_cancel_vertical_speed)
+    local impulse = force / dt
+    return impulse
+end
+
+Physics.get_vertical_forces = function(self, dt, movement_parameters)
+    if Movement.state.just_jumped then
+        Movement:bhop_jump_update()
+        return self:get_jump_force(dt, 1, movement_parameters)
+    end
+    if Movement.timers.jump_end > 0 then
+        if not Input.get.hold_jump() then
+            Movement.timers.jump_end = 0 -- Cancel jump if W is released
+            if Body.parts.body then
+                local force = self:down() * movement_parameters.jump_impulse * 0.5;
+                local impulse = force / dt;
+                return impulse;
+            end
+        end
+        if Body.parts.body then
+            return self:up() * movement_parameters.jump_hold_force * (Movement.timers.jump_end/movement_parameters.jump_time)^4;
+        end
+    end
+    return vec2(0, 0)
+end
+
+Movement.apply_all_forces = function(self, body, force, angular_force)
+    body:apply_force_to_center(force);
+    body:apply_torque(angular_force);
+end
+
+Physics.get_angular_forces = function(self)
+    return Body:get_angular_velocity() * -0.5 -- Damping angular velocity
+end
+
+Physics.get_all_forces = function(self, dt)
+    local force = vec2(0, 0)
+    force = force + self:get_horizontal_forces(dt, Movement.params)
+    force = force + self:get_vertical_forces(dt, Movement.params)
+
+    local angular_force = 0
+    angular_force = angular_force + self:get_angular_forces()
+
+    return force, angular_force
+end
+
+Controller.update_timers = function(self, dt)
+    -- Movement timers
+    Movement:update_movement_timers(dt)
+    -- Animation timers
+    Animation.Recoil.timers.fire_cooldown_timer = math.max(0, Animation.Recoil.timers.fire_cooldown_timer - dt)
+end
+    
+Movement.update_movement_timers = function(self, dt)
+    -- Update jump timers
+    if self.timers.jump_end > 0 then
+        self.timers.jump_end = math.max(0, self.timers.jump_end - dt)
+    end
+    
+    if not Input.get.hold_jump() then
+        self.timers.jump_input = 0 -- Reset timer if jump is released
+    end
+    
+    if self.timers.jump_input > 0 then
+        self.timers.jump_input = math.max(0, self.timers.jump_input - dt)
+    end
+    
+    -- Update coyote timer
+    if self.timers.coyote > 0 then
+        self.timers.coyote = math.max(0, self.timers.coyote - dt)
+    end
+    
+    -- Update bhop timer
+    if self.timers.bhop > 0 and self.state.on_ground then
+        self.timers.bhop = math.max(0, self.timers.bhop - dt)
+        if self.timers.bhop <= 0 then
+            self.state.bhop_speedup = 1 -- Reset speedup when timer ends
+        end
+    end
+    
+    -- Update landing timer
+    if self.timers.landing > 0 then
+        self.timers.landing = math.max(0, self.timers.landing - dt)
+    end
+    
+    -- Update rolling timer
+    if self.timers.rolling > 0 then
+        self.timers.rolling = math.max(0, self.timers.rolling - dt)
+        if self.state.spin_angle == 0 then
+            self:begin_spin()
+        end
+        if self.timers.rolling <= 0 then
+            self.state.spin_angle = 0 -- Reset spin angle after roll ends
+        end
+    end
+    
+    -- Update spin angle
+    if math.abs(self.state.spin_angle) > 0 then
+        local sign = self.state.spin_angle < 0 and -1 or 1
+        self.state.spin_angle = self.state.spin_angle + (dt * self.params.backflip_speed * sign)
+    end
+    if math.abs(self.state.spin_angle) > math.pi*2 then
+        self.state.spin_angle = 0 -- Reset spin angle after a full rotation
+    end
 end
 
 -- Step Function (Physics and main logic)
@@ -749,7 +1240,6 @@ function Controller.on_step(self, dt)
     end
 
     Camera:move_camera(
-        Body:get_position(),
         Physics:get_velocity_relative_to_ground(Body.parts.body),
         dt,
         Utils.lerp_vec2
@@ -757,475 +1247,41 @@ function Controller.on_step(self, dt)
 
     Movement.Ground:check_ground(Body.parts.body, Body.parts)
 
-    local function update_recoil()
-        fire_cooldown_timer = math.max(0, fire_cooldown_timer - dt)
-        current_pointer_recoil_offset = lerp_vec2(current_pointer_recoil_offset, target_pointer_recoil_offset, dt * RECOIL_APPLICATION_SPEED)
-        target_pointer_recoil_offset = lerp_vec2(target_pointer_recoil_offset, vec2(0, 0), dt * RECOIL_DECAY_SPEED)
-        if target_pointer_recoil_offset:length() ^ 2 < 0.00001 then
-            target_pointer_recoil_offset = vec2(0, 0)
-            if current_pointer_recoil_offset:length() ^ 2 < 0.00001 then
-                current_pointer_recoil_offset = vec2(0, 0)
-            end
-        end
-    end
+    -- Use the Animation.Recoil.update_recoil function instead
 
-    local function calculate_arm_pivots()
-        local left_pivot_world = body:get_world_point(left_arm_pivot)
-        local right_pivot_world = body:get_world_point(right_arm_pivot)
-        if not left_pivot_world or not right_pivot_world then
-            print("on_step Error: Failed to get world pivot points.")
-            left_pivot_world = body:get_position()
-            right_pivot_world = body:get_position()
-        end
-        return left_pivot_world, right_pivot_world
-    end
-
-    local function calculate_nudge_direction()
-        if rolling_timer > 0 then
-            return roll_direction
-        end
-        local move_left = input.move_left();
-        local move_right = input.move_right();
-        if move_left and not move_right then
-            return -1;
-        elseif move_right and not move_left then
-            return 1;
-        else
-            return 0;
-        end;
-    end
-
-    local function handle_locomotion(left_pivot_world, right_pivot_world)
-        local move_left = input.move_left();
-        local move_right = input.move_right();
-        local target_left_leg_angle = NEUTRAL_ANGLE
-        local target_right_leg_angle = NEUTRAL_ANGLE
-        local target_leg_torque = IDLE_TORQUE
-
-        if jumping then
-            target_left_leg_angle = JUMP_TUCK_ANGLE
-            target_right_leg_angle = -JUMP_TUCK_ANGLE
-            target_leg_torque = JUMP_TORQUE
-        elseif move_left or move_right then
-            local body_vel = body:get_linear_velocity()
-            local horizontal_vel_mag = (body_vel and math.abs(body_vel.x)) or 0
-            local vel_scale = math.min(math.max(horizontal_vel_mag, 0.4), 1.0)
-            walk_cycle_time = walk_cycle_time + (dt * WALK_CYCLE_SPEED * vel_scale)
-            local swing_offset = math.sin(walk_cycle_time) * WALK_SWING_AMPLITUDE
-            target_left_leg_angle = NEUTRAL_ANGLE + swing_offset * vel_scale
-            target_right_leg_angle = NEUTRAL_ANGLE - swing_offset * vel_scale
-            target_leg_torque = WALK_TORQUE
-        else
-            target_left_leg_angle = NEUTRAL_ANGLE
-            target_right_leg_angle = NEUTRAL_ANGLE
-            target_leg_torque = IDLE_TORQUE
-        end
-
-        if left_hinge and right_hinge then
-            local current_left_leg_angle = get_current_leg_hinge_angle(left_hinge)
-            local current_right_leg_angle = get_current_leg_hinge_angle(right_hinge)
-            local desired_left_leg_speed = calculate_motor_speed_for_leg_angle(current_left_leg_angle, target_left_leg_angle, LEG_ANGLE_CONTROL_KP, MAX_MOTOR_SPEED_FOR_LEG_CONTROL)
-            local desired_right_leg_speed = calculate_motor_speed_for_leg_angle(current_right_leg_angle, target_right_leg_angle, LEG_ANGLE_CONTROL_KP, MAX_MOTOR_SPEED_FOR_LEG_CONTROL)
-            set_leg_hinge_motor(left_hinge, desired_left_leg_speed, target_leg_torque)
-            set_leg_hinge_motor(right_hinge, desired_right_leg_speed, target_leg_torque)
-        end
-    end
-
-    local function handle_arms_holding(left_pivot_world, right_pivot_world)
-        if not holding then
-            return;
-        end;
-        -- Currently Holding an Object
-
-        local hold_center = (left_pivot_world + right_pivot_world) / 2.0;
-
-        -- Calculate effective pointer position including scaled, smoothed recoil
-        local raw_pointer_pos = player:pointer_pos()
-        local distance_to_pointer = (raw_pointer_pos - hold_center):length()
-        local scale_factor = math.max(MIN_RECOIL_DISTANCE_CLAMP, distance_to_pointer)
-        local effective_recoil_offset = current_pointer_recoil_offset * scale_factor
-        local pointer_world = raw_pointer_pos + effective_recoil_offset;
-
-        -- Calculate aiming direction vector and distance
-        local hold_direction_vec = pointer_world - hold_center;
-        local current_aim_dist = hold_direction_vec:length();
-        local effective_hold_dist = math.min(current_aim_dist, MAX_HOLD_DISTANCE);
-
-        -- Calculate normalized aiming direction
-        local hold_direction_normalized;
-        if current_aim_dist < 0.001 then
-             hold_direction_normalized = body:get_right_direction() or vec2(1,0);
-             effective_hold_dist = 0;
-        else
-             hold_direction_normalized = hold_direction_vec:normalize();
-        end
-
-        -- Calculate target position and base angle
-        local target_holding_pos = hold_center + hold_direction_normalized * effective_hold_dist;
-        local target_holding_angle = math.atan2(hold_direction_normalized.y, hold_direction_normalized.x);
-
-        -- Determine if the object should be visually flipped
-        local is_flipped = (pointer_world.x < hold_center.x);
-
-        -- Apply visual flip to angle if needed
-        if false then
-            target_holding_angle = target_holding_angle + math.pi
-            target_holding_angle = math.atan2(math.sin(target_holding_angle), math.cos(target_holding_angle))
-        end
-
-        -- Set the held object's final transform
-        holding:set_position(target_holding_pos);
-        holding:set_angle(target_holding_angle);
-
-        -- Update drop velocity history buffer
-        holding_cumulative_time = holding_cumulative_time + dt
-        history_index = (history_index % max_history_frames) + 1
-        holding_history_buffer[history_index] = {
-             pos = target_holding_pos, angle = target_holding_angle, time = holding_cumulative_time
-        }
-
-        -- Position the static arms - **CRITICAL CHANGE HERE**
-        local target_left_hand_world = nil
-        local target_right_hand_world = nil
-
-        -- Determine which local points on the held object the arms should connect to
-        -- This ensures arms connect correctly regardless of the object's visual flip
-        local effective_left_hold_point = holding_point_left   -- Default: left arm connects to left point
-        local effective_right_hold_point = holding_point_right -- Default: right arm connects to right point
-
-        if is_flipped then
-            -- If visually flipped, swap the effective points
-            effective_left_hold_point = holding_point_right -- Left arm connects to what *was* the right point
-            effective_right_hold_point = holding_point_left  -- Right arm connects to what *was* the left point
-        end
-
-        -- Get the world coordinates of these effective connection points
-        target_left_hand_world = holding:get_world_point(effective_left_hold_point);
-        target_right_hand_world = holding:get_world_point(effective_right_hold_point);
+    local left_pivot_world, right_pivot_world = Body:calculate_arm_pivots(Animation.Arms.pivots.left_arm_pivot, Animation.Arms.pivots.right_arm_pivot)
 
 
-        -- Calculate arm angles based on the determined target points
-        if not target_left_hand_world or not target_right_hand_world then
-             print("Holding logic error: Cannot get world points on held object.")
-        else
-             local left_arm_full_vector = target_left_hand_world - left_pivot_world;
-             local right_arm_full_vector = target_right_hand_world - right_pivot_world;
-             -- Keep the Pi offset for the left arm assuming its sprite points rightwards initially
-             local left_arm_angle = math.atan2(left_arm_full_vector.y, left_arm_full_vector.x) + math.pi;
-             local right_arm_angle = math.atan2(right_arm_full_vector.y, right_arm_full_vector.x);
-             left_arm_angle = math.atan2(math.sin(left_arm_angle), math.cos(left_arm_angle));
-             right_arm_angle = math.atan2(math.sin(right_arm_angle), math.cos(right_arm_angle));
-             left_arm:set_position(left_pivot_world); left_arm:set_angle(left_arm_angle);
-             right_arm:set_position(right_pivot_world); right_arm:set_angle(right_arm_angle);
-        end
 
-        -- Activation Check
-        if player:pointer_pressed() and fire_cooldown_timer <= 0 then
-            fire_cooldown_timer = FIRE_COOLDOWN_DURATION;
-            local total_recoil_this_frame = 0;
-            local holding_components = holding:get_components();
-            for i=1,#holding_components do
-                local output = holding_components[i]:send_event("activate");
-                if type(output) == "table" and type(output.recoil) == "number" then
-                    total_recoil_this_frame = total_recoil_this_frame + output.recoil;
-                end
-            end;
-
-            if total_recoil_this_frame > 0 then
-                if hold_direction_normalized then
-                    local perp_recoil_dir = vec2(-hold_direction_normalized.y, hold_direction_normalized.x)
-                    if perp_recoil_dir.y < 0 then
-                        perp_recoil_dir = perp_recoil_dir * -1 -- Ensure upward recoil
-                    end
-                    local recoil_impulse_vector = perp_recoil_dir * total_recoil_this_frame;
-                    target_pointer_recoil_offset = target_pointer_recoil_offset + recoil_impulse_vector;
-                else
-                    print("Warning: Cannot calculate recoil direction because aim direction is degenerate.")
-                end
-            end
-        end -- End of activation check
-    end
-
-    local function handle_arms_neutral(left_pivot_world, right_pivot_world)
-            -- Handle logic for neutral arm positions
-            local target_left_arm_rel_angle = NEUTRAL_ARM_ANGLE_REL
-            local target_right_arm_rel_angle = -NEUTRAL_ARM_ANGLE_REL
-
-            if jumping then
-                target_left_arm_rel_angle = target_left_arm_rel_angle + JUMP_TUCK_ARM_ANGLE_REL
-                target_right_arm_rel_angle = target_right_arm_rel_angle - JUMP_TUCK_ARM_ANGLE_REL
-            elseif input.move_left() or input.move_right() then
-                local body_vel = body:get_linear_velocity()
-                local horizontal_vel_mag = (body_vel and math.abs(body_vel.x)) or 0
-                local vel_scale = math.min(math.max(horizontal_vel_mag, 0.4), 1.0)
-                local swing_offset = math.sin(walk_cycle_time) * WALK_SWING_AMPLITUDE
-                target_left_arm_rel_angle = NEUTRAL_ARM_ANGLE_REL - (swing_offset * vel_scale * 0.6)
-                target_right_arm_rel_angle = -NEUTRAL_ARM_ANGLE_REL + (swing_offset * vel_scale * 0.6)
-            end
-
-            local body_angle = body:get_angle()
-            local final_world_left_arm_angle = body_angle + target_left_arm_rel_angle
-            local final_world_right_arm_angle = body_angle + target_right_arm_rel_angle
-
-            left_arm:set_position(left_pivot_world)
-            left_arm:set_angle(final_world_left_arm_angle)
-            right_arm:set_position(right_pivot_world)
-            right_arm:set_angle(final_world_right_arm_angle)
-    end
-
-    local function handle_arms(left_pivot_world, right_pivot_world)
-        if holding then
-            -- Handle logic for holding an object
-            handle_arms_holding(left_pivot_world, right_pivot_world)
-        else
-            -- Handle logic for neutral arm positions
-            handle_arms_neutral(left_pivot_world, right_pivot_world)
-        end
-    end
-
-    local function straighten()
-        local time = 1
-
-        local target_vector = ground_surface_normal
-        target_vector = target_vector:rotate(spin_angle)
-
-        local current_angle = body:get_angle() + math.pi/2
-        local target_angle = math.atan2(target_vector.y, target_vector.x)
-        local current_angular_velocity = body:get_angular_velocity()
-        local angular_velocity_rotation = current_angular_velocity * time
-        local angle_diff = target_angle - current_angle + angular_velocity_rotation
-        local angle_diff_clamped = math.atan2(math.sin(angle_diff), math.cos(angle_diff))
-        local straightening_force = math.abs(angle_diff_clamped*(spin_angle == 0 and 10 or 20))
-
-        body:apply_force_to_center(target_vector * straightening_force)
-        if left_foot then
-            local fp_world = left_foot:get_world_point(vec2(0, -0.2))
-            if fp_world then left_foot:apply_force(target_vector * -straightening_force/2, fp_world) end
-        end
-        if right_foot then
-            local fp_world = right_foot:get_world_point(vec2(0, -0.2))
-            if fp_world then right_foot:apply_force(target_vector * -straightening_force/2, fp_world) end
-        end
-        body:apply_force_to_center(-reflect(get_gravity_force(), -target_vector))
-    end
-
-    local function calculate_next_bhop_speedup(bhop_speedup_factor, bhop_max_speed_factor, bhop_time, current_speedup) -- Called every jump
-        local new_speedup = bhop_max_speed_factor-((bhop_max_speed_factor-current_speedup)*bhop_speedup_factor)
-        return math.min((new_speedup), bhop_max_speed_factor)
-    end
-
-    local function bhop_jump_update()
-        if bhop_timer > 0 then
-            bhop_speedup = calculate_next_bhop_speedup(
-                movement_parameters.bhop_speedup_factor,
-                movement_parameters.bhop_max_speed_factor,
-                movement_parameters.bhop_time,
-                bhop_speedup
-            )
-        end
-        bhop_timer = movement_parameters.bhop_time
-    end
-    
-    local function calculate_horizontal_velocity(max_speed, acceleration_time, damping_base, current_horizontal_velocity, is_moving)
-        -- Formula for key pressed is (n-x)^2/t, where n is the max speed, x is the current speed, and t is the acceleration time
-        -- Formula for key released is x * d, where d is the damping base
-        local sign = current_horizontal_velocity < 0 and -1 or 1
-        local x = math.abs(current_horizontal_velocity) -- Will be undone on return
-        local calculated_velocity = x
-        if is_moving and x <= max_speed then
-            calculated_velocity = x + ((max_speed - x) ^ 2) / acceleration_time
-        else
-            calculated_velocity = x * damping_base
-        end
-        return calculated_velocity * sign
-    end
-
-    local function calculate_force(current_horizontal_velocity, target_velocity)
-        -- Calculate the force needed to reach the target velocity
-        local acceleration = (target_velocity - current_horizontal_velocity) / dt
-        local force = acceleration * get_self_mass()
-        return force
-    end
-
-    local function get_horizontal_forces()
-        local nudge_direction = calculate_nudge_direction()
-        
-        -- Calculate the perpendicular vector to the ground normal (tangent to ground)
-        local ground_tangent = ground_surface_normal:rotate(-math.pi/2)
-
-        local tangent_velocity = rotate_vector_down(get_velocity_relative_to_ground(), ground_surface_normal)
-        
-        local is_moving = (nudge_direction ~= 0)
-        local vel_x = tangent_velocity.x
-        local is_slowing_down = (vel_x * nudge_direction < 0) and not (rolling_timer > 0) -- If trying to move in the opposite direction of current velocity
-        if is_slowing_down then
-            vel_x = vel_x * -0.01
-        end
-        local target_velocity = calculate_horizontal_velocity(
-            movement_parameters.max_speed * bhop_speedup + (rolling_timer > 0 and movement_parameters.roll_max_speed_increase or 0),
-            on_ground and movement_parameters.acceleration_time or movement_parameters.air_acceleration_time,
-            on_ground and movement_parameters.damping_base or movement_parameters.air_damping_base,
-            vel_x,
-            is_moving
-        )
-        local force = calculate_force(vel_x, target_velocity)
-        
-        -- Calculate horizontal component along the ground
-        local rotated_force = ground_tangent * force
-
-        return rotated_force
-    end
-
-    local function get_jump_force(multiplier)
-        just_jumped = false
-        bhop_jump_update()
-        if body then
-            local relative_velocity = rotate_vector_down(get_velocity_relative_to_ground(), ground_surface_normal)
-
-            -- Current velocity cancellation
-            local impulse_to_cancel_vertical_speed
-            if relative_velocity.y < 0 then
-                impulse_to_cancel_vertical_speed = math.abs(relative_velocity.y) * get_self_mass()
-            else
-                impulse_to_cancel_vertical_speed = math.min(math.abs(relative_velocity.y) * get_self_mass(), movement_parameters.max_jump_bounce)
-                -- Visually show boost
-                -- if impulse_to_cancel_vertical_speed == movement_parameters.max_jump_bounce then
-                --     print("nice!")
-                --     begin_spin()
-                -- end
-            end
-
-            -- Speed bonus to reward running jumps
-            local current_speed_bonus = math.abs(relative_velocity.x) * movement_parameters.current_speed_factor
-            
-
-            local force = up() * (movement_parameters.jump_impulse * multiplier + current_speed_bonus + impulse_to_cancel_vertical_speed)
-            local impulse = force / dt
-            return impulse
-        end
-        return vec2(0, 0) -- No impulse if body is not defined
-    end
-
-    local function get_vertical_forces()
-        if just_jumped then
-            return get_jump_force(1)
-        end
-        if jump_end_timer > 0 then
-            if not input.hold_jump() then
-                jump_end_timer = 0 -- Cancel jump if W is released
-                if body then
-                    local force = down() * movement_parameters.jump_impulse * 0.5;
-                    local impulse = force / dt;
-                    return impulse;
-                end
-            end
-            if body then
-                return up() * movement_parameters.jump_hold_force * (jump_end_timer/movement_parameters.jump_time)^4;
-            end
-        end
-        return vec2(0, 0)
-    end
-    
-    local function apply_all_forces(force, angular_force)
-        body:apply_force_to_center(force);
-        body:apply_torque(angular_force);
-    end
-
-    local function get_angular_forces()
-        return body:get_angular_velocity() * -0.5 -- Damping angular velocity
-    end
-
-    local function get_all_forces()
-        local force = vec2(0, 0)
-        force = force + get_horizontal_forces()
-        force = force + get_vertical_forces()
-
-        local angular_force = 0
-        angular_force = angular_force + get_angular_forces()
-
-        return force, angular_force
-    end
-
-    local function update_jump_end_timer(dt)
-        if jump_end_timer > 0 then
-            jump_end_timer = math.max(0, jump_end_timer - dt)
-        end
-    end
-
-    local function update_jump_input_timer(dt)
-        if not input.hold_jump() then
-            jump_input_timer = 0 -- Reset timer if W is released
-        end
-        if jump_input_timer > 0 then
-            jump_input_timer = math.max(0, jump_input_timer - dt)
-        end
-    end
-
-    local function update_coyote_timer(dt)
-        if coyote_timer > 0 then
-            coyote_timer = math.max(0, coyote_timer - dt)
-        end
-    end
-
-    local function update_bhop_timer(dt)
-        if bhop_timer > 0 and on_ground then
-            bhop_timer = math.max(0, bhop_timer - dt)
-            if bhop_timer <= 0 then
-                bhop_speedup = 1 -- Reset speedup when timer ends
-            end
-        end
-    end
-
-    local function update_landing_timer(dt)
-        if landing_timer > 0 then
-            landing_timer = math.max(0, landing_timer - dt)
-        end
-    end
-
-    local function update_rolling_timer(dt)
-        if rolling_timer > 0 then
-            rolling_timer = math.max(0, rolling_timer - dt)
-            if spin_angle == 0 then
-                begin_spin()
-            end
-            if rolling_timer <= 0 then
-                spin_angle = 0 -- Reset spin angle after roll ends
-            end
-        end
-    end
-
-    local function update_spin_angle(dt)
-        if math.abs(spin_angle) > 0 then
-            local sign = spin_angle < 0 and -1 or 1
-            spin_angle = spin_angle + (dt * movement_parameters.backflip_speed * sign)
-        end
-        if math.abs(spin_angle) > math.pi*2 then
-            spin_angle = 0 -- Reset spin angle after a full rotation
-        end
-    end
-
-    local function update_timers(dt)
-        update_jump_end_timer(dt)
-        update_jump_input_timer(dt)
-        update_coyote_timer(dt)
-        update_bhop_timer(dt)
-        update_landing_timer(dt)
-        update_rolling_timer(dt)
-        update_spin_angle(dt)
-    end
-
+    -- Main update loop begins
     local debug = false
 
-    update_recoil()
-    local left_pivot_world, right_pivot_world = calculate_arm_pivots()
+    -- Update animations and visual effects
+    Animation.Recoil:update_recoil(dt, Utils.lerp_vec2)
+    
+    -- Calculate arm pivot positions
+    local left_pivot_world, right_pivot_world = Body:calculate_arm_pivots(Animation.Arms.pivots.left_arm_pivot, Animation.Arms.pivots.right_arm_pivot)
+    
+    -- Handle leg animation and movement
     if not debug then
-        handle_locomotion(left_pivot_world, right_pivot_world)
+        Animation.Legs:handle_locomotion(dt, Movement.state.jumping, Input.get)
     end
-    handle_arms(left_pivot_world, right_pivot_world)
-    straighten()
-    apply_all_forces(get_all_forces())
-    update_timers(dt)
+    
+    -- Handle arm positioning and holding objects
+    Animation.Arms:handle(left_pivot_world, right_pivot_world, Body.parts, Movement.state.jumping, Animation.Legs.State.walk_cycle_time, dt, Input.get)
+    
+    -- Apply character straightening forces
+    Movement:straighten(Body.parts)
+    
+    -- Calculate and apply physics forces
+    local force, angular_force = Physics:get_all_forces(dt)
+    Movement:apply_all_forces(Body.parts.body, force, angular_force)
+    
+    -- Update all timers
+    self:update_timers(dt)
+    
+    -- Debug controls
     if player:key_pressed("B") then
-        begin_spin()
+        Movement:begin_spin()
     end
 end
