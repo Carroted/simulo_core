@@ -2,15 +2,14 @@ local Camera = {}
 
 Camera.cam_pos = vec2(0, 0);
 
-Camera.on_start = function(self, Body, player)
-    self.player = player
-    if Body then
-        self.Body = Body
-        player:set_camera_position(self.cam_pos + vec2(0, 0.6))
-    else
-        self.cam_pos = vec2(0, 0)
-        print("Warning: Body component not found on start.")
-    end
+Camera.init = function(self, dependencies)
+    self.Body = dependencies.Body
+    self.player = dependencies.player
+end
+    
+
+Camera.on_start = function(self)
+    -- Do nothing
 end
 
 Camera.on_save = function(self)

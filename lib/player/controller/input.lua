@@ -1,12 +1,10 @@
 local Input = {}
-
-local player = nil
-
-Input.on_start = function(self, input_player)
-    player = input_player
-    if not player then
-        print("Warning: Player not found on Input start.")
-    end
+Input.player = Scene:get_host()
+Input.init = function(self, dependencies)
+    self.player = dependencies.player
+end
+Input.on_start = function(self)
+    -- Do nothing
 end
 Input.keymap = {
     jump = "W"; -- Jump
@@ -16,15 +14,13 @@ Input.keymap = {
     drop = "Q"; -- Drop object
     roll = "S"; -- Roll (left/right movement)
 }
-Input.get = {
-    jump = function() return player:key_just_pressed(Input.keymap.jump) end, -- Only works in on_update()
-    hold_jump = function() return player:key_pressed(Input.keymap.jump) end,
-    move_left = function() return player:key_pressed(Input.keymap.move_left) end,
-    move_right = function() return player:key_pressed(Input.keymap.move_right) end,
-    pick_up = function() return player:key_just_pressed(Input.keymap.pick_up) end, -- Only works in on_update()
-    drop = function() return player:key_just_pressed(Input.keymap.drop) end, -- Only works in on_update()
-    roll = function() return player:key_just_pressed(Input.keymap.roll) end, -- Only works in on_update()
-    hold_roll = function() return player:key_pressed(Input.keymap.roll) end,
-}
+Input.jump = function(self) return self.player:key_just_pressed(self.keymap.jump) end -- Only works in on_update()
+Input.hold_jump = function(self) return self.player:key_pressed(self.keymap.jump) end
+Input.move_left = function(self) return self.player:key_pressed(self.keymap.move_left) end
+Input.move_right = function(self) return self.player:key_pressed(self.keymap.move_right) end
+Input.pick_up = function(self) return self.player:key_just_pressed(self.keymap.pick_up) end -- Only works in on_update()
+Input.drop = function(self) return self.player:key_just_pressed(self.keymap.drop) end -- Only works in on_update()
+Input.roll = function(self) return self.player:key_just_pressed(self.keymap.roll) end -- Only works in on_update()
+Input.hold_roll = function(self) return self.player:key_pressed(self.keymap.roll) end
 
 return Input
