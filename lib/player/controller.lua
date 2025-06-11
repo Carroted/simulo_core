@@ -8,60 +8,241 @@
     - Activation of held object components via pointer click
     - Smooth recoil effect on pointer aiming (scaled by distance, consistently upward)
     - Drop velocity calculation based on recent movement history
+    - Many more! (todo: update this)
 ]]
 
--- Component Handles & References
-local left_hinge = nil;
-local right_hinge = nil;
-local body = nil;
-local left_foot = nil;
-local right_foot = nil;
-local left_arm = nil;
-local right_arm = nil;
+-- SUBMODULES --
+local Controller = {} -- Primary class.
+local Animation = {} -- Handles all animations and player holding logic.
+local Movement = {} -- Applies player force changes and contains logic for special moves.
+local Physics = {} -- How the player moves through the world and accelerates.
+local Input = {} -- Handles input polling and key mappings.
+local ObjectInteraction = {}
+local Utils = {} -- Utility functions for vector math and other helpers.
+local Body = {} -- Handles the player's body parts and their properties.
+local Camera = {} -- Handles camera position and movement.
+
+-- Animation
+Animation.Legs = {}
+Animation.Legs.params = {
+    WALK_CYCLE_SPEED = 30.0;
+    WALK_SWING_AMPLITUDE = math.rad(35);
+    JUMP_TUCK_ANGLE = math.rad(20);
+    NEUTRAL_ANGLE = math.rad(0);
+    LEG_ANGLE_CONTROL_KP = 50.0;
+    MAX_MOTOR_SPEED_FOR_LEG_CONTROL = 15.0;
+    WALK_TORQUE = 200.0;
+    JUMP_TORQUE = 250.0;
+    IDLE_TORQUE = 5.0;
+    MAX_HOLD_DISTANCE = 0.4;
+}
+Animation.Legs.State = {
+    walk_cycle_time = 0;
+}
+Animation.Legs.set_leg_hinge_motor = function(self, hinge, speed, torque)
+    if not hinge then return end;
+    local speed_prop = hinge:get_property("motor_speed");
+    if speed_prop then
+        speed_prop.value = -speed;
+        hinge:set_property("motor_speed", speed_prop);
+    else
+         print("Warning: motor_speed property not found for leg hinge")
+    end;
+    local torque_prop = hinge:get_property("max_motor_torque");
+    if torque_prop then
+        torque_prop.value = torque;
+        hinge:set_property("max_motor_torque", torque_prop);
+    else
+         print("Warning: max_motor_torque property not found for leg hinge")
+    end;
+end;
+
+Animation.Legs.get_current_leg_hinge_angle = function(self, hinge_component)
+    if not hinge_component then return nil end
+    local joint = hinge_component:send_event("core/hinge/get");
+    if not joint then return nil end
+    local obj_a = joint:get_object_a();
+    local obj_b = joint:get_object_b();
+    if not obj_a or not obj_b then return nil end
+    local angle_a = obj_a:get_angle();
+    local angle_b = obj_b:get_angle();
+    local relative_angle = angle_b - angle_a;
+    relative_angle = math.atan2(math.sin(relative_angle), math.cos(relative_angle));
+    return relative_angle;
+end
+
+Animation.Legs.calculate_motor_speed_for_leg_angle = function(self, current_angle, target_angle, kp, max_speed)
+    if current_angle == nil then return 0 end
+    local angle_error = target_angle - current_angle;
+    angle_error = math.atan2(math.sin(angle_error), math.cos(angle_error));
+    local desired_speed = kp * angle_error;
+    desired_speed = math.clamp(desired_speed, -max_speed, max_speed);
+    return -desired_speed;
+end
+
+
+Animation.Arms = {}
+Animation.Arms.params = {
+    NEUTRAL_ARM_ANGLE_REL = math.rad(58);
+    JUMP_TUCK_ARM_ANGLE_REL = math.rad(10);
+}
+Animation.Arms.pivots = {
+    left_arm_pivot = vec2(0, 0);
+    right_arm_pivot = vec2(0, 0);
+}
+Animation.Recoil = {}
+Animation.Recoil.params = {
+    FIRE_COOLDOWN_DURATION = 0.3;
+    target_pointer_recoil_offset = vec2(0, 0);
+    current_pointer_recoil_offset = vec2(0, 0);
+    RECOIL_APPLICATION_SPEED = 40.0; -- Updated Constant
+    RECOIL_DECAY_SPEED = 10.0;   -- Updated Constant
+    MIN_RECOIL_DISTANCE_CLAMP = 0.1;
+}
+Animation.Recoil.Timers = {
+    fire_cooldown_timer = 0;
+}
+Animation.Holding = {}
+Animation.Holding.state = {
+    holding = nil;
+    holding_point_left = nil;  -- Local point on object for LEFT arm when NOT flipped
+    holding_point_right = nil; -- Local point on object for RIGHT arm when NOT flipped
+    original_holding_layers = nil;
+    original_holding_bodytype = nil;
+}
+Animation.Holding.History = {}
+Animation.Holding.History.state = {
+    max_history_frames = 10;
+    holding_history_buffer = {};
+    history_index = 0;
+    holding_cumulative_time = 0;
+}
+-- Helper to clear holding history and reset cumulative time
+Animation.Holding.History.clear_holding_history = function(self)
+    self.state.holding_history_buffer = {}
+    self.state.history_index = 0
+    self.state.holding_cumulative_time = 0
+end
+Animation.Holding.pick_up = function(self, object_to_hold, local_left_hold_point, local_right_hold_point)
+    if self.state.holding or not object_to_hold then
+        return
+    end
+    if not local_left_hold_point or not local_right_hold_point then
+         print("Cannot pick up: Missing local hold points.")
+        return
+    end
+
+    self.state.holding = object_to_hold;
+    self.state.holding_point_left = local_left_hold_point;
+    self.state.holding_point_right = local_right_hold_point;
+
+    self.state.original_holding_layers = self.state.holding:get_collision_layers();
+    self.state.original_holding_bodytype = self.state.holding:get_body_type();
+
+    self.state.holding:set_body_type(BodyType.Static);
+    self.state.holding:set_collision_layers({}); -- No collision
+
+    self:clear_holding_history();
+end
+Animation.Holding.drop_object = function(self)
+    local dropped_object = self.state.holding
+    if not dropped_object then
+        return
+    end
+
+
+    if self.state.original_holding_bodytype ~= nil then
+         dropped_object:set_body_type(self.state.original_holding_bodytype);
+    else
+         dropped_object:set_body_type(BodyType.Dynamic);
+         print("Warning: Could not restore original body type for held object.")
+    end
+
+    if type(self.state.original_holding_layers) == "table" then
+        dropped_object:set_collision_layers(self.state.original_holding_layers);
+    else
+        dropped_object:set_collision_layers({1})
+         print("Warning: Could not restore original collision layers for held object.")
+    end
+
+    self.History:drop_object(dropped_object)
+
+    self.state.holding = nil;
+    self.state.holding_point_left = nil;
+    self.state.holding_point_right = nil;
+    self.state.original_holding_layers = nil;
+    self.state.original_holding_bodytype = nil;
+end
+Animation.Holding.History.drop_object = function(self, dropped_object)
+    local linear_velocity = vec2(0, 0)
+    local angular_velocity = 0
+    local current_buffer_size = #self.holding_history_buffer
+    if current_buffer_size >= 5 then
+        local index_now = history_index
+        local index_prev = (history_index - 4 + self.state.max_history_frames) % self.state.max_history_frames + 1
+        local data_now = self.state.holding_history_buffer[index_now]
+        local data_prev = self.state.holding_history_buffer[index_prev]
+        if data_now and data_prev then
+            local time_diff = data_now.time - data_prev.time
+            if time_diff > 0.001 then
+                local pos_diff = data_now.pos - data_prev.pos
+                linear_velocity = pos_diff / time_diff
+                local angle_diff = data_now.angle - data_prev.angle
+                angle_diff = math.atan2(math.sin(angle_diff), math.cos(angle_diff))
+                angular_velocity = angle_diff / time_diff
+            end
+        end
+    end
+
+    dropped_object:set_linear_velocity(linear_velocity);
+    dropped_object:set_angular_velocity(angular_velocity);
+end
+
+
+
+Animation.Recoil.update_timers = function(self, dt)
+    self.Timers.fire_cooldown_timer = math.max(0, self.Timers.fire_cooldown_timer - dt)
+end
+Animation.update_timers = function(self, dt)
+    self.Recoil:update_timers(dt)
+end
+
+-- Body
+Body.parts = {
+    left_hinge = nil;
+    right_hinge = nil;
+    body = nil;
+    left_foot = nil;
+    right_foot = nil;
+    left_arm = nil;
+    right_arm = nil;
+    head = nil;
+}
 
 local player = Scene:get_host();
 
--- Math functions
-local function dot(v1, v2)
+
+Utils.dot = function(v1, v2)
     return v1.x * v2.x + v1.y * v2.y
 end
-local function reflect(v, normal)
+Utils.reflect = function(v, normal)
     local v_mag = v:magnitude()
     v = v:normalize()
     normal = normal:normalize()
-    local dot_product = dot(v, normal)
+    local dot_product = Utils.dot(v, normal)
     return vec2(v.x - 2 * dot_product * normal.x, v.y - 2 * dot_product * normal.y) * v_mag
 end
+Utils.lerp_vec2 = function(v1, v2, t)
+    t = math.clamp(t, 0, 1)
+    return vec2(
+        v1.x * (1 - t) + v2.x * t,
+        v1.y * (1 - t) + v2.y * t
+    )
+end
 
--- Holding State Variables
-local holding = nil;
-local holding_point_left = nil;  -- Local point on object for LEFT arm when NOT flipped
-local holding_point_right = nil; -- Local point on object for RIGHT arm when NOT flipped
-local original_holding_layers = nil;
-local original_holding_bodytype = nil;
+Camera.cam_pos = vec2(0, 0);
 
--- Arm Configuration
-local left_arm_pivot = vec2(0, 0);
-local right_arm_pivot = vec2(0, 0);
-local NEUTRAL_ARM_ANGLE_REL = math.rad(58);
-local JUMP_TUCK_ARM_ANGLE_REL = math.rad(10);
-
--- Camera & Movement Configuration
-local cam_pos = vec2(0, 0);
-
-local WALK_CYCLE_SPEED = 30.0;
-local WALK_SWING_AMPLITUDE = math.rad(35);
-local JUMP_TUCK_ANGLE = math.rad(20);
-local NEUTRAL_ANGLE = math.rad(0);
-local LEG_ANGLE_CONTROL_KP = 50.0;
-local MAX_MOTOR_SPEED_FOR_LEG_CONTROL = 15.0;
-local WALK_TORQUE = 200.0;
-local JUMP_TORQUE = 250.0;
-local IDLE_TORQUE = 5.0;
-local MAX_HOLD_DISTANCE = 0.4;
-
--- Keymapping
-local keymap = {
+Input.keymap = {
     jump = "W"; -- Jump
     move_left = "A"; -- Move left
     move_right = "D"; -- Move right
@@ -69,18 +250,17 @@ local keymap = {
     drop = "Q"; -- Drop object
     roll = "S"; -- Roll (left/right movement)
 }
-local input = {
-    jump = function() return player:key_just_pressed(keymap.jump) end, -- Only works in on_update()
-    hold_jump = function() return player:key_pressed(keymap.jump) end,
-    move_left = function() return player:key_pressed(keymap.move_left) end,
-    move_right = function() return player:key_pressed(keymap.move_right) end,
-    pick_up = function() return player:key_just_pressed(keymap.pick_up) end, -- Only works in on_update()
-    drop = function() return player:key_just_pressed(keymap.drop) end, -- Only works in on_update()
-    roll = function() return player:key_just_pressed(keymap.roll) end, -- Only works in on_update()
+Input.get = {
+    jump = function() return player:key_just_pressed(Input.keymap.jump) end, -- Only works in on_update()
+    hold_jump = function() return player:key_pressed(Input.keymap.jump) end,
+    move_left = function() return player:key_pressed(Input.keymap.move_left) end,
+    move_right = function() return player:key_pressed(Input.keymap.move_right) end,
+    pick_up = function() return player:key_just_pressed(Input.keymap.pick_up) end, -- Only works in on_update()
+    drop = function() return player:key_just_pressed(Input.keymap.drop) end, -- Only works in on_update()
+    roll = function() return player:key_just_pressed(Input.keymap.roll) end, -- Only works in on_update()
 }
 
--- Movement arguments
-local movement_parameters = {
+Movement.params = {
     acceleration_time = 10; -- Multiplies the time it takes to reach a given speed
     air_acceleration_time = 20; -- Multiplies the time it takes to reach a given speed in air
     max_speed = 5; -- Asymptote of the velocity curve
@@ -103,273 +283,235 @@ local movement_parameters = {
     roll_max_speed_increase = 5; -- Maximum speed increase from rolling
 };
 
--- Timers
-local coyote_timer = 0; -- Coyote time for jump forgiveness
-local bhop_timer = 0; -- Timer for bhop boost
-local jump_end_timer = 0; -- Timer for jump hold during the jump
-local jump_input_timer = 0; -- Timer for jump input hold before the jump
-local landing_timer = 0; -- Timer for right after touching ground
-local rolling_timer = 0; -- Timer for rolls
+Movement.timers = {
+    coyote_timer = 0; -- Coyote time for jump forgiveness
+    bhop_timer = 0; -- Timer for bhop boost
+    jump_end_timer = 0; -- Timer for jump hold during the jump
+    jump_input_timer = 0; -- Timer for jump input hold before the jump
+    landing_timer = 0; -- Timer for right after touching ground
+    rolling_timer = 0; -- Timer for rolls
+}
+Movement.state = {
+    on_ground = false; -- Whether the player is currently on the ground
+    jumping = false; -- Whether the player is currently jumping
+    just_jumped = false; -- Whether the player just jumped this frame
+    roll_direction = 0; -- Direction of the roll, 1 for right, -1 for left, 0 for no roll
+    bhop_speedup = 1; -- Speed multiplier for bhop boost, cannot exceed bhop_max_speed_factor
+    spin_angle = 0; -- Angle for spinning the player around
+}
+Movement.ground = {
+    ground_friction = 0.1;
+    ground_surface_normal = vec2(0,1); -- Normal of the ground surface
+    ground_surface_velocity = vec2(0,0); -- For moving surfaces like cars
+}
 
--- Velocity History Tracking (for Drops)
-local max_history_frames = 10;
-local holding_history_buffer = {};
-local history_index = 0;
-local holding_cumulative_time = 0;
-
--- Ground State & Jumping
-local on_ground = false;
-local ground_friction = 0.1;
-local ground_surface_normal = vec2(0,0); -- Normal of the ground surface
-local ground_surface_velocity = vec2(0,0); -- For moving surfaces like cars
-local jumping = false;
-local just_jumped = false;
-local bhop_speedup = 1; -- Speed multiplier for bhop boost, cannot exceed bhop_max_speed_factor
-local roll_direction = 0; -- Direction of the roll, 1 for right, -1 for left, 0 for no roll
-
--- Activation & Recoil State
-local FIRE_COOLDOWN_DURATION = 0.3;
-local fire_cooldown_timer = 0;
-local target_pointer_recoil_offset = vec2(0, 0);
-local current_pointer_recoil_offset = vec2(0, 0);
-local RECOIL_APPLICATION_SPEED = 40.0; -- Updated Constant
-local RECOIL_DECAY_SPEED = 10.0;   -- Updated Constant
-local MIN_RECOIL_DISTANCE_CLAMP = 0.1;
-
--- General State & Helpers
-local walk_cycle_time = 0;
-local spin_angle = 0; -- For spinning the player around
+-- Shorthand
 local NO_COLLISION_LAYERS = {};
 
--- Physics functions
-local function get_self_mass()
-    if body and left_foot and right_foot and left_arm and right_arm and self then
-        return body:get_mass() + left_foot:get_mass() + right_foot:get_mass() +
-               left_arm:get_mass() + right_arm:get_mass() + self:get_mass()
+Physics.get_body_mass = function(self, bodyparts)
+    if bodyparts.body and bodyparts.left_foot and bodyparts.right_foot and 
+       bodyparts.left_arm and bodyparts.right_arm and bodyparts.head then
+        return bodyparts.body:get_mass() + bodyparts.left_foot:get_mass() + bodyparts.right_foot:get_mass() +
+               bodyparts.left_arm:get_mass() + bodyparts.right_arm:get_mass() + bodyparts.head:get_mass()
     else
         return 1.0
     end
 end
-local function get_gravity_force()
-    return Scene:get_gravity() * get_self_mass()
+Physics.get_gravity_force = function(self)
+    return Scene:get_gravity() * self:get_body_mass(Body.parts)
 end
-local function down()
+Physics.down = function(self)
     return Scene:get_gravity():normalize()
 end
-local function up()
-    return -down()
+Physics.up = function(self)
+    return -self:down()
 end
-local function get_velocity_relative_to_ground()
+Physics.get_velocity_relative_to_ground = function(self, body)
     if not body then return vec2(0, 0) end
     local current_velocity = body:get_linear_velocity()
     if not current_velocity then return vec2(0, 0) end
-    return current_velocity - ground_surface_velocity
+    return current_velocity - Movement.ground.ground_surface_velocity
 end
-local function rotate_vector_down(vector, ground_surface_normal)
+Physics.rotate_vector_down = function(self, vector, ground_surface_normal)
     local ground_angle = math.atan2(ground_surface_normal.y, ground_surface_normal.x) - math.pi/2
     local rotated_vector = vector:rotate(-ground_angle)
     return rotated_vector
 end
 
--- Helper to clear holding history and reset cumulative time
-local function clear_holding_history()
-    holding_history_buffer = {}
-    history_index = 0
-    holding_cumulative_time = 0
-    -- print("Cleared holding history and cumulative time.")
+-- Individual module initialization functions
+Body.on_start = function(self, saved_data)
+    self.parts.left_hinge = saved_data.left_hinge
+    self.parts.right_hinge = saved_data.right_hinge
+    self.parts.body = saved_data.body
+    self.parts.left_foot = saved_data.left_foot
+    self.parts.right_foot = saved_data.right_foot
+    self.parts.left_arm = saved_data.left_arm
+    self.parts.right_arm = saved_data.right_arm
+    self.parts.head = saved_data.head
+    
+    -- Configure arms
+    if self.parts.left_arm then
+        self.parts.left_arm:set_body_type(BodyType.Static)
+        self.parts.left_arm:set_collision_layers({}) -- No collision
+    end
+    if self.parts.right_arm then
+        self.parts.right_arm:set_body_type(BodyType.Static)
+        self.parts.right_arm:set_collision_layers({}) -- No collision
+    end
+end
+
+Body.on_save = function(self)
+    return {
+        left_hinge = self.parts.left_hinge,
+        right_hinge = self.parts.right_hinge,
+        body = self.parts.body,
+        left_foot = self.parts.left_foot,
+        right_foot = self.parts.right_foot,
+        left_arm = self.parts.left_arm,
+        right_arm = self.parts.right_arm,
+        head = self.parts.head
+    }
+end
+
+Animation.Arms.on_start = function(self, saved_data)
+    self.pivots.left_arm_pivot = saved_data.left_arm_pivot or vec2(-0.1, 0.15)
+    self.pivots.right_arm_pivot = saved_data.right_arm_pivot or vec2(0.1, 0.15)
+end
+
+Animation.Arms.on_save = function(self)
+    return {
+        left_arm_pivot = self.pivots.left_arm_pivot,
+        right_arm_pivot = self.pivots.right_arm_pivot
+    }
+end
+
+Animation.Legs.on_start = function(self, saved_data)
+    self.State.walk_cycle_time = saved_data.walk_cycle_time or 0
+end
+
+Animation.Legs.on_save = function(self)
+    return {
+        walk_cycle_time = self.State.walk_cycle_time
+    }
+end
+
+Animation.Holding.History.on_start = function(self, saved_data)
+    self:clear_holding_history()
+    self.state.holding_cumulative_time = saved_data.holding_cumulative_time or 0
+end
+
+Animation.Holding.History.on_save = function(self)
+    return {
+        holding_cumulative_time = self.state.holding_cumulative_time
+    }
+end
+
+Animation.Holding.on_start = function(self, saved_data)
+    self.state.holding = saved_data.holding
+    self.state.holding_point_left = saved_data.holding_point_left
+    self.state.holding_point_right = saved_data.holding_point_right
+    self.state.original_holding_layers = saved_data.original_holding_layers
+    self.state.original_holding_bodytype = saved_data.original_holding_bodytype
+    
+    self.History:on_start(saved_data)
+    
+    if self.state.holding then
+        if self.state.holding:get_body_type() ~= BodyType.Static then
+            print("Warning: Held object was not static on load, forcing static.")
+            self.state.holding:set_body_type(BodyType.Static)
+        end
+        self.state.holding:set_collision_layers({}) -- No collision
+    end
+end
+
+Animation.Holding.on_save = function(self)
+    local history_data = self.History:on_save()
+    return {
+        holding = self.state.holding,
+        holding_point_left = self.state.holding_point_left,
+        holding_point_right = self.state.holding_point_right,
+        original_holding_layers = self.state.original_holding_layers,
+        original_holding_bodytype = self.state.original_holding_bodytype,
+        holding_cumulative_time = history_data.holding_cumulative_time
+    }
+end
+
+Animation.Recoil.on_start = function(self)
+    self.Timers.fire_cooldown_timer = 0
+    self.params.target_pointer_recoil_offset = vec2(0, 0)
+    self.params.current_pointer_recoil_offset = vec2(0, 0)
+end
+
+Animation.Recoil.on_save = function(self)
+    return {}  -- No persistent data needed for recoil
+end
+
+Animation.on_start = function(self, saved_data)
+    self.Arms:on_start(saved_data)
+    self.Legs:on_start(saved_data)
+    self.Holding:on_start(saved_data)
+    self.Recoil:on_start() -- No saved data needed for recoil
+end
+
+Animation.on_save = function(self)
+    local arms_data = self.Arms:on_save()
+    local legs_data = self.Legs:on_save()
+    local holding_data = self.Holding:on_save()
+    
+    -- Merge the tables
+    local result = {}
+    for k, v in pairs(arms_data) do result[k] = v end
+    for k, v in pairs(legs_data) do result[k] = v end
+    for k, v in pairs(holding_data) do result[k] = v end
+    
+    return result
+end
+
+Camera.on_start = function(self, body)
+    if body then
+        self.cam_pos = body:get_position()
+        player:set_camera_position(self.cam_pos + vec2(0, 0.6))
+    else
+        self.cam_pos = vec2(0, 0)
+        print("Warning: Body component not found on start.")
+    end
+end
+
+Camera.on_save = function(self)
+    return {}  -- Camera position doesn't need to be saved
 end
 
 -- Initialization Function
 function on_start(saved_data)
-    left_hinge = saved_data.left_hinge;
-    right_hinge = saved_data.right_hinge;
-    body = saved_data.body;
-    left_foot = saved_data.left_foot;
-    right_foot = saved_data.right_foot;
-    left_arm = saved_data.left_arm;
-    right_arm = saved_data.right_arm;
+    Controller:on_start(saved_data)
+end
 
-    left_arm_pivot = saved_data.left_arm_pivot or vec2(-0.1, 0.15);
-    right_arm_pivot = saved_data.right_arm_pivot or vec2(0.1, 0.15);
-
-    holding = saved_data.holding;
-    holding_point_left = saved_data.holding_point_left;
-    holding_point_right = saved_data.holding_point_right;
-    original_holding_layers = saved_data.original_holding_layers;
-    original_holding_bodytype = saved_data.original_holding_bodytype;
-
-    walk_cycle_time = saved_data.walk_cycle_time or 0;
-
-    clear_holding_history()
-    fire_cooldown_timer = 0;
-    target_pointer_recoil_offset = vec2(0, 0);
-    current_pointer_recoil_offset = vec2(0, 0);
-
-    if body then
-        cam_pos = body:get_position();
-    else
-        cam_pos = vec2(0,0)
-         print("Warning: Body component not found on start.")
-    end
-
-    if left_arm then
-        left_arm:set_body_type(BodyType.Static);
-        left_arm:set_collision_layers(NO_COLLISION_LAYERS);
-    end
-    if right_arm then
-        right_arm:set_body_type(BodyType.Static);
-        right_arm:set_collision_layers(NO_COLLISION_LAYERS);
-    end
-
-    if holding then
-         if holding:get_body_type() ~= BodyType.Static then
-              print("Warning: Held object was not static on load, forcing static.")
-              holding:set_body_type(BodyType.Static)
-         end
-         holding:set_collision_layers(NO_COLLISION_LAYERS);
-    end
-
-    if player and body then player:set_camera_position(cam_pos + vec2(0, 0.6)) end
-end;
+Controller.on_start = function(self, saved_data)
+    Body:on_start(saved_data)
+    Animation:on_start(saved_data)
+    Camera:on_start(Body.parts.body)
+    Movement:on_start(Input, Physics, Body.parts.body)
+    Physics:on_start(Body.parts)
+end
 
 -- Save Function
 function on_save()
-    return {
-        left_hinge = left_hinge, right_hinge = right_hinge,
-        body = body, left_foot = left_foot, right_foot = right_foot,
-        left_arm = left_arm, right_arm = right_arm,
-        left_arm_pivot = left_arm_pivot, right_arm_pivot = right_arm_pivot,
-        walk_cycle_time = walk_cycle_time,
-        holding_cumulative_time = holding_cumulative_time,
-        holding = holding,
-        holding_point_left = holding_point_left, holding_point_right = holding_point_right,
-        original_holding_layers = original_holding_layers, original_holding_bodytype = original_holding_bodytype,
-    };
-end;
-
--- Helper Functions
-
-local function set_leg_hinge_motor(hinge, speed, torque)
-    if not hinge then return end;
-    local speed_prop = hinge:get_property("motor_speed");
-    if speed_prop then
-        speed_prop.value = -speed;
-        hinge:set_property("motor_speed", speed_prop);
-    else
-         print("Warning: motor_speed property not found for leg hinge")
-    end;
-    local torque_prop = hinge:get_property("max_motor_torque");
-    if torque_prop then
-        torque_prop.value = torque;
-        hinge:set_property("max_motor_torque", torque_prop);
-    else
-         print("Warning: max_motor_torque property not found for leg hinge")
-    end;
-end;
-
-local function get_current_leg_hinge_angle(hinge_component)
-    if not hinge_component then return nil end
-    local joint = hinge_component:send_event("core/hinge/get");
-    if not joint then return nil end
-    local obj_a = joint:get_object_a();
-    local obj_b = joint:get_object_b();
-    if not obj_a or not obj_b then return nil end
-    local angle_a = obj_a:get_angle();
-    local angle_b = obj_b:get_angle();
-    local relative_angle = angle_b - angle_a;
-    relative_angle = math.atan2(math.sin(relative_angle), math.cos(relative_angle));
-    return relative_angle;
+    return Controller:on_save()
 end
 
-local function calculate_motor_speed_for_leg_angle(current_angle, target_angle, kp, max_speed)
-    if current_angle == nil then return 0 end
-    local angle_error = target_angle - current_angle;
-    angle_error = math.atan2(math.sin(angle_error), math.cos(angle_error));
-    local desired_speed = kp * angle_error;
-    desired_speed = math.clamp(desired_speed, -max_speed, max_speed);
-    return -desired_speed;
+Controller.on_save = function(self)
+    local body_data = Body:on_save()
+    local animation_data = Animation:on_save()
+    
+    -- Merge the data tables
+    local result = {}
+    for k, v in pairs(body_data) do result[k] = v end
+    for k, v in pairs(animation_data) do result[k] = v end
+    
+    return result
 end
 
-local function lerp_vec2(v1, v2, t)
-    t = math.clamp(t, 0, 1)
-    return vec2(
-        v1.x * (1 - t) + v2.x * t,
-        v1.y * (1 - t) + v2.y * t
-    )
-end
 
-local function pick_up(object_to_hold, local_left_hold_point, local_right_hold_point)
-    if holding or not object_to_hold then
-        return
-    end
-    if not local_left_hold_point or not local_right_hold_point then
-         print("Cannot pick up: Missing local hold points.")
-        return
-    end
-
-    holding = object_to_hold;
-    holding_point_left = local_left_hold_point;
-    holding_point_right = local_right_hold_point;
-
-    original_holding_layers = holding:get_collision_layers();
-    original_holding_bodytype = holding:get_body_type();
-
-    holding:set_body_type(BodyType.Static);
-    holding:set_collision_layers(NO_COLLISION_LAYERS);
-
-    clear_holding_history();
-end
-
-local function drop_object()
-    if not holding then
-        return
-    end
-
-    local dropped_object = holding
-
-    if original_holding_bodytype ~= nil then
-         dropped_object:set_body_type(original_holding_bodytype);
-    else
-         dropped_object:set_body_type(BodyType.Dynamic);
-         print("Warning: Could not restore original body type for held object.")
-    end
-
-    if type(original_holding_layers) == "table" then
-        dropped_object:set_collision_layers(original_holding_layers);
-    else
-        dropped_object:set_collision_layers({1})
-         print("Warning: Could not restore original collision layers for held object.")
-    end
-
-    local linear_velocity = vec2(0, 0)
-    local angular_velocity = 0
-    local current_buffer_size = #holding_history_buffer
-    if current_buffer_size >= 5 then
-        local index_now = history_index
-        local index_prev = (history_index - 4 + max_history_frames) % max_history_frames + 1
-        local data_now = holding_history_buffer[index_now]
-        local data_prev = holding_history_buffer[index_prev]
-        if data_now and data_prev then
-            local time_diff = data_now.time - data_prev.time
-            if time_diff > 0.001 then
-                local pos_diff = data_now.pos - data_prev.pos
-                linear_velocity = pos_diff / time_diff
-                local angle_diff = data_now.angle - data_prev.angle
-                angle_diff = math.atan2(math.sin(angle_diff), math.cos(angle_diff))
-                angular_velocity = angle_diff / time_diff
-            end
-        end
-    end
-
-    dropped_object:set_linear_velocity(linear_velocity);
-    dropped_object:set_angular_velocity(angular_velocity);
-
-    holding = nil;
-    holding_point_left = nil;
-    holding_point_right = nil;
-    original_holding_layers = nil;
-    original_holding_bodytype = nil;
-end
 
 local function begin_spin()
     local current_velocity = get_velocity_relative_to_ground()
@@ -377,85 +519,88 @@ local function begin_spin()
     spin_angle = math.pi/4 * -movement_direction
 end
 
+Movement.roll = function(self)
+    self.timers.rolling_timer = movement_parameters.roll_time;
+    local velocity = get_velocity_relative_to_ground();
+    if velocity.x > 0 then
+        self.state.roll_direction = 1; -- Roll right
+    elseif velocity.x < 0 then
+        self.state.roll_direction = -1; -- Roll left
+    else
+        self.state.roll_direction = 0; -- No roll direction
+    end
+    begin_spin()
+    print("roll")
+end
+
+Movement.is_roll_possible = function(self)
+    if self.timers.landing_timer == 0 then
+        return false;
+    end
+    if self.timers.rolling_timer > 0 then
+        return false; -- Already rolling
+    end
+    local velocity = get_velocity_relative_to_ground();
+    if math.abs(velocity.x) < self.params.roll_speed_threshold then
+        return false; -- Not moving enough to roll
+    end
+    return true;
+end
+
+Movement.handle_roll = function(self)
+    if self.Input.roll() and self:is_roll_possible() then
+        self:roll()
+    end
+end
+
+local function handle_jump()
+    if input.jump() then
+        jump_input_timer = movement_parameters.jump_input_time;
+    end
+    if jump_input_timer > 0 and (on_ground or coyote_timer > 0) then
+        jump_input_timer = 0;
+        coyote_timer = 0; -- Reset coyote timer on jump
+        jumping = true;
+        just_jumped = true;
+        jump_end_timer = movement_parameters.jump_time;
+    end
+end
+
+local function handle_pick_up()
+    if input.pick_up() then
+        if holding then
+            drop_object()
+        end
+        local objs = Scene:get_objects_in_circle({ position = player:pointer_pos(), radius = 0 });
+        for i = 1, #objs do
+            if (objs[i]:get_body_type() == BodyType.Dynamic) and (objs[i]:get_mass() < 1) then
+                pick_up(objs[i], vec2(-0.075, 0), vec2(0.075, 0));
+                break;
+            end
+        end
+    end
+end
+
+local function handle_drop()
+    if input.drop() then
+        if holding then
+            drop_object()
+        end
+    end
+end
+
+local function update_camera()
+    if player and cam_pos then
+        player:set_camera_position(cam_pos)
+    end
+end
+
+
 -- Update Function (Input polling)
 function on_update(dt)
-    local function roll()
-        rolling_timer = movement_parameters.roll_time;
-        local velocity = get_velocity_relative_to_ground();
-        if velocity.x > 0 then
-            roll_direction = 1; -- Roll right
-        elseif velocity.x < 0 then
-            roll_direction = -1; -- Roll left
-        else
-            roll_direction = 0; -- No roll direction
-        end
-        begin_spin()
-        print("roll")
-    end
-
-    local function is_roll_possible()
-        if landing_timer == 0 then
-            return false;
-        end
-        if rolling_timer > 0 then
-            return false; -- Already rolling
-        end
-        local velocity = get_velocity_relative_to_ground();
-        if math.abs(velocity.x) < movement_parameters.roll_speed_threshold then
-            return false; -- Not moving enough to roll
-        end
-        return true;
-    end
-
-    local function handle_roll()
-        if input.roll() and is_roll_possible() then
-            roll()
-        end
-    end
-
-    local function handle_jump()
-        if input.jump() then
-            jump_input_timer = movement_parameters.jump_input_time;
-        end
-        if jump_input_timer > 0 and (on_ground or coyote_timer > 0) then
-            jump_input_timer = 0;
-            coyote_timer = 0; -- Reset coyote timer on jump
-            jumping = true;
-            just_jumped = true;
-            jump_end_timer = movement_parameters.jump_time;
-        end
-    end
-
-    local function handle_pick_up()
-        if input.pick_up() then
-            if holding then
-                drop_object()
-            end
-            local objs = Scene:get_objects_in_circle({ position = player:pointer_pos(), radius = 0 });
-            for i = 1, #objs do
-                if (objs[i]:get_body_type() == BodyType.Dynamic) and (objs[i]:get_mass() < 1) then
-                    pick_up(objs[i], vec2(-0.075, 0), vec2(0.075, 0));
-                    break;
-                end
-            end
-        end
-    end
-
-    local function handle_drop()
-        if input.drop() then
-            if holding then
-                drop_object()
-            end
-        end
-    end
-
-    local function update_camera()
-        if player and cam_pos then
-            player:set_camera_position(cam_pos)
-        end
-    end
-
-    handle_jump()
+    Controller:on_update(dt)
+end
+Controller.on_update = function(self, dt)    handle_jump()
     handle_pick_up()
     handle_drop()
     update_camera()
