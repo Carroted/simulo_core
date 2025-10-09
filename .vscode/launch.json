@@ -1,0 +1,12 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "simulo",
+            "request": "launch",
+            "name": "Run Player Test",
+            "program": "./scripts/player/main.lua",
+            "focus": true
+        }
+    ]
+}
